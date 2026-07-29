@@ -146,7 +146,7 @@ export class SocketHerdrEventStream<Event extends HerdrEvent> implements HerdrEv
         else waiter.resolve({ done: false, value: event });
       } catch (cause) {
         this.finish(
-          cause instanceof HerdrError
+          HerdrError.is(cause)
             ? cause
             : new HerdrError(
                 "invalid_event",

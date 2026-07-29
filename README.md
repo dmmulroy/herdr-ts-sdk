@@ -70,7 +70,7 @@ try {
     { signal: controller.signal, requestTimeoutMs: 120_000 },
   );
 } catch (error) {
-  if (error instanceof HerdrError) console.error(error.code, error.requestId);
+  if (HerdrError.is(error)) console.error(error.code, error.requestId);
 }
 ```
 

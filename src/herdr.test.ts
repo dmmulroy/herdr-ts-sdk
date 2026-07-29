@@ -80,6 +80,14 @@ test("agent outputs retain pane targeting and receive public defaults", async ()
   expect(agent).not.toHaveProperty("id");
 });
 
+test("HerdrError.is narrows unknown values to HerdrError", () => {
+  const value: unknown = new HerdrError("test_code", "test failure", "request-1");
+
+  expect(HerdrError.is(value)).toBe(true);
+  expect(HerdrError.is(new Error("other"))).toBe(false);
+  expect(HerdrError.is(null)).toBe(false);
+});
+
 test("server wire errors become HerdrError without closing the open code space", async () => {
   const socketPath = await startRecordingHerdrServer([], (request) => {
     if (request.method === "ping") return { type: "pong", version: "0.8.0", protocol: 18 };
@@ -89,7 +97,7 @@ test("server wire errors become HerdrError without closing the open code space",
 
   const failure = await herdr.panes.get(herdr.ids.pane("missing")).catch((cause: unknown) => cause);
 
-  expect(failure).toBeInstanceOf(HerdrError);
+  expect(HerdrError.is(failure)).toBe(true);
   expect(failure).toMatchObject({ code: "new_server_code" });
 });
 
@@ -114,7 +122,8 @@ test("invalid ratios and oversized graphics frames fail before socket I/O", asyn
   await expect(
     herdr.agents.start({ name: herdr.ids.agentName("test"), kind: "pi", paneId, timeoutMs: 3_000 }),
   ).rejects.toMatchObject({ code: "invalid_argument" });
-  expect(() => herdr.ids.absolutePath("relative/path")).toThrow(HerdrError);
+  const pathFailure = captureThrownValue(() => herdr.ids.absolutePath("relative/path"));
+  expect(HerdrError.is(pathFailure)).toBe(true);
 });
 
 test("event waits normalize lifecycle envelopes to dot-named public events", async () => {
@@ -214,6 +223,15 @@ test("unsupported protocol is rejected before a resource request", async () => {
   await expect(herdr.workspaces.list()).rejects.toMatchObject({ code: "unsupported_protocol" });
   expect(requests).toHaveLength(1);
 });
+
+function captureThrownValue(operation: () => unknown): unknown {
+  try {
+    operation();
+    return undefined;
+  } catch (failure: unknown) {
+    return failure;
+  }
+}
 
 class WireFailure {
   constructor(
