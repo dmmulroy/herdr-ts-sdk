@@ -27,7 +27,9 @@
     "build": "vp run generate && vp pack",
     "dev": "vp pack --watch",
     "test": "vp test",
-    "check": "vp check",
+    "check": "vp check && pnpm run check:examples",
+    "check:examples": "tsc --project examples/tsconfig.json",
+    "example": "pnpm run build && node --experimental-strip-types",
     "prepublishOnly": "vp run build"
   },
   "dependencies": {

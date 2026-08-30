@@ -199,3 +199,9 @@ vp run build
 The bundled schema is `schema/herdr-api.schema.json`. Generation verifies every
 request method/result relationship. The binary `pane.graphics.stream` method is
 included explicitly because the upstream JSON Schema intentionally omits it.
+
+## Examples
+
+The [`examples/`](examples/) directory contains seven executable, type-checked workflows covering
+development workspaces, isolated worktrees, agent reviews, command completion notifications, live
+event monitoring, graphics overlays, and session inventory.
