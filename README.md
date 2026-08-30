@@ -1,112 +1,201 @@
 # @herdr/sdk
 
-A Stripe-style TypeScript client for Herdr's local JSON socket API.
+An Effect-native TypeScript SDK for Herdr's local protocol-21 socket API.
 
-- plural resource namespaces such as `herdr.workspaces` and `herdr.panes`
-- camel-cased inputs and readonly outputs
-- branded IDs and validating ID/path helpers
-- typed `HerdrError` failures
-- normalized async event streams
-- raw-byte pane graphics APIs
-- schema-generated private wire types
+- yieldable, independently composable services
+- Stripe-style namespaces through `HerdrSdk`
+- schema-owned resources, inputs, events, and branded identifiers
+- granular typed failures
+- cold Effect event streams
+- scoped pane-graphics writers
+- generated private wire contracts
 
 ## Requirements
 
 - Node.js 20 or newer
-- Herdr protocol **18**
+- Effect `4.0.0-beta.105`
+- Herdr protocol 21
 - a running local Herdr session
 
 The package is ESM-only and does not depend on the Herdr binary package.
+Its bundled contract tracks Herdr `origin/master` commit
+`4a3b04f59ba3b7d8a15cea187b23e1e80c343b0c` (the protocol-21 revision audited
+after v0.8.2). Unix-domain sockets and Herdr's Windows named-pipe mapping are
+both supported.
 
 ## Install
 
 ```sh
-pnpm add @herdr/sdk
+pnpm add @herdr/sdk effect@4.0.0-beta.105
 ```
 
-## Use
+## Root SDK
+
+`HerdrSdk` is a yieldable composition root. Its namespace values are the exact
+independent service implementations from the Layer graph.
 
 ```ts
-import Herdr from "@herdr/sdk";
+import { Effect } from "effect";
+import { HerdrSdk, herdrSdkLayerFromOptions } from "@herdr/sdk";
 
-const herdr = new Herdr({ session: "work" });
+const program = Effect.gen(function* () {
+  const herdr = yield* HerdrSdk;
 
-const created = await herdr.workspaces.create({
-  cwd: herdr.ids.absolutePath("/repo"),
-  label: "api",
-  focus: false,
+  const created = yield* herdr.workspaces.create({
+    cwd: herdr.ids.absolutePath("/repo"),
+    label: "api",
+    focus: false,
+  });
+
+  const pane = yield* herdr.panes.split(created.rootPane.id, {
+    direction: "right",
+    ratio: 0.4,
+  });
+  yield* herdr.panes.sendText(pane.id, "pnpm test\n");
+  return created.workspace;
 });
 
-const pane = await herdr.panes.split(created.rootPane.id, {
-  direction: "right",
-  ratio: 0.4,
-});
-
-await herdr.panes.sendText(pane.id, "pnpm test\n");
+const workspace = await Effect.runPromise(
+  program.pipe(Effect.provide(herdrSdkLayerFromOptions({ session: "work" }))),
+);
 ```
 
-Select the active/default Herdr session with `new Herdr()`, a named session with
-`new Herdr({ session: "work" })`, or an exact socket path with
-`new Herdr({ socketPath: herdr.ids.absolutePath("/path/to/herdr.sock") })`.
-When no selector is supplied, the client honors `HERDR_SOCKET_PATH`, then
-`HERDR_SESSION`, then uses the default config-directory socket.
+Configuration selection is deterministic:
 
-## Errors and cancellation
+1. explicit `socketPath` or `session`
+2. `HERDR_SOCKET_PATH`
+3. `HERDR_SESSION`
+4. the platform default socket
 
-Server, protocol, validation, timeout, cancellation, and socket failures reject
-with `HerdrError`. Server error codes remain open strings for forward
-compatibility.
+Invalid selected input fails; it never silently falls through to a lower-priority
+source. `requestTimeout` accepts an Effect `Duration` and controls the local
+transport deadline. Operation fields named `timeoutMs` remain server-owned waits.
+
+## Direct service composition
+
+Applications that need one capability can depend on that service directly. The
+production service Layer supplies the ambient configuration and shared transport.
 
 ```ts
-import Herdr, { HerdrError } from "@herdr/sdk";
+import { Effect } from "effect";
+import { WorkspaceService, workspaceServiceLayer } from "@herdr/sdk";
 
-const herdr = new Herdr();
-const controller = new AbortController();
+const listWorkspaces = Effect.gen(function* () {
+  const workspaces = yield* WorkspaceService;
+  return yield* workspaces.list();
+}).pipe(Effect.provide(workspaceServiceLayer));
+```
 
-try {
-  await herdr.agents.wait(
+Every service also exports a `*LayerWithoutDependencies` variant that keeps its
+transport requirement visible for application-level composition and tests.
+
+## Typed failures and interruption
+
+Expected failures remain in each operation's Effect error channel. Server codes
+are open strings for forward compatibility, while transport, parsing, protocol,
+timeout, and graphics failures use distinct schema-backed tagged errors.
+
+```ts
+import { Duration, Effect } from "effect";
+import { HerdrSdk } from "@herdr/sdk";
+
+const waitForReviewer = Effect.gen(function* () {
+  const herdr = yield* HerdrSdk;
+  return yield* herdr.agents.wait(
     { name: herdr.ids.agentName("reviewer") },
     { until: ["done", "blocked"] },
-    { signal: controller.signal, requestTimeoutMs: 120_000 },
+    { requestTimeout: Duration.minutes(2) },
   );
-} catch (error) {
-  if (HerdrError.is(error)) console.error(error.code, error.requestId);
-}
+}).pipe(
+  Effect.catchTags({
+    HerdrRequestTimeout: (error) => Effect.logWarning(error.message),
+    HerdrServerError: (error) => Effect.logWarning(error.serverMessage),
+  }),
+);
 ```
 
-`requestTimeoutMs` is a local transport deadline. Operation fields named
-`timeoutMs` are server-owned waits. Mutations are never retried automatically.
+Effect interruption owns cancellation. There is no `AbortSignal` API; interrupting
+the fiber closes its socket.
 
 ## Events
 
-```ts
-const stream = await herdr.events.subscribe([
-  { type: "workspace.created" },
-  { type: "pane.agent_status_changed", paneId },
-] as const);
+`events.subscribe` returns a cold `Stream`. Each run acquires its own socket and
+releases it when the stream completes, fails, or is interrupted. Protocol 21
+subscriptions are live-only: the server starts their event sequence when it
+accepts the request and does not replay retained lifecycle events.
 
-for await (const event of stream) {
-  console.log(event.type);
-}
+To initialize a cache without a race, start consuming the subscription first,
+buffer its events, obtain `session.snapshot`, install the snapshot, and then
+apply the buffered events in order. A snapshot taken before the subscription is
+accepted can miss changes that occur between those two operations.
+
+```ts
+import { Effect, Stream } from "effect";
+import { HerdrSdk } from "@herdr/sdk";
+
+const observe = Effect.gen(function* () {
+  const herdr = yield* HerdrSdk;
+  const paneId = herdr.ids.pane("workspace-1:pane-1");
+
+  yield* herdr.events
+    .subscribe([
+      { type: "workspace.created" },
+      { type: "pane.agent_status_changed", paneId },
+    ] as const)
+    .pipe(Stream.runForEach((event) => Effect.log(event.type)));
+});
 ```
 
-Lifecycle and specialized wire envelopes are normalized to the same dot-named
-`type` discriminant. Call `stream.close()` to cancel locally.
+Literal subscription specifications narrow the event union returned by the
+stream. `events.wait` remains a single Effect with the same match-specific
+narrowing.
+
+## Scoped pane graphics
+
+One-shot graphics writes validate a 512-KiB limit. Multi-frame writes use a
+scope-owned writer with a 16-MiB inline-frame limit; no manual `close()` is
+exposed. Protocol 21 also supports BGRA pixels, named layers with stable
+z-indexes, capability discovery, and immutable direct-file frames. Direct-file
+writes return Herdr's correlated sequence/revision acknowledgement, while the
+writer's background response loop retains asynchronous server failures for the
+next operation.
+
+```ts
+import { Effect } from "effect";
+import { HerdrSdk } from "@herdr/sdk";
+
+const draw = Effect.scoped(
+  Effect.gen(function* () {
+    const herdr = yield* HerdrSdk;
+    const paneId = herdr.ids.pane("workspace-1:pane-1");
+    const writer = yield* herdr.panes.graphics.openLayerStream(paneId, {
+      layerId: "status-overlay",
+      zIndex: 10,
+    });
+
+    yield* writer.write({
+      format: "rgba",
+      imageWidth: 1,
+      imageHeight: 1,
+      data: Uint8Array.of(255, 0, 0, 255),
+    });
+  }),
+);
+```
 
 ## Development
 
-This repository uses Vite+ for project creation, package management, formatting,
-linting, typechecking, tests, task execution, and packaging.
+This repository uses Vite+ for formatting, linting, typechecking, tests, and
+packaging.
 
 ```sh
 vp install
-vp run generate  # regenerate private wire types from the bundled JSON Schema
+vp run generate
 vp check
 vp test
 vp run build
 ```
 
-The bundled schema is `schema/herdr-api.schema.json`. Generation verifies that
-every schema request method has a correlated result discriminant; the binary
-`pane.graphics.stream` method is included explicitly because the upstream JSON
-Schema intentionally skips it.
+The bundled schema is `schema/herdr-api.schema.json`. Generation verifies every
+request method/result relationship. The binary `pane.graphics.stream` method is
+included explicitly because the upstream JSON Schema intentionally omits it.

@@ -1,8 +1,16 @@
 {
   "name": "@herdr/sdk",
-  "version": "0.1.0",
-  "description": "Stripe-style TypeScript client for Herdr's local socket API.",
+  "version": "0.8.2",
+  "description": "Effect-native TypeScript SDK for Herdr's local socket API.",
+  "homepage": "https://github.com/dmmulroy/herdr-ts-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/dmmulroy/herdr-ts-sdk/issues"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmmulroy/herdr-ts-sdk.git"
+  },
   "files": [
     "dist"
   ],
@@ -23,7 +31,9 @@
     "prepublishOnly": "vp run build"
   },
   "dependencies": {
-    "ajv": "^8.20.0"
+    "@effect/platform-node-shared": "4.0.0-beta.105",
+    "ajv": "^8.20.0",
+    "effect": "4.0.0-beta.105"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
@@ -44,6 +54,7 @@
     "node": ">=20"
   },
   "herdr": {
-    "protocol": 18
+    "protocol": 21,
+    "upstreamCommit": "4a3b04f59ba3b7d8a15cea187b23e1e80c343b0c"
   }
 }

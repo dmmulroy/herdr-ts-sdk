@@ -1,32 +1,44 @@
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import herdrApiSchema from "../schema/herdr-api.schema.json" with { type: "json" };
-import { HerdrError } from "./herdr-error.ts";
+import type { ErrorResponse } from "./generated/wire-error-response.ts";
+import type { EventEnvelope } from "./generated/wire-event.ts";
+import type { SubscriptionEventEnvelope } from "./generated/wire-subscription-event.ts";
+import type { SuccessResponse } from "./generated/wire-success-response.ts";
 
 const SCHEMA_ID = "https://herdr.dev/herdr-api.schema.json";
 const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: false });
 ajv.addSchema({ ...herdrApiSchema, $id: SCHEMA_ID });
-const parseSuccessResponse = ajv.compile({ $ref: `${SCHEMA_ID}#/schemas/success_response` });
-const parseErrorResponse = ajv.compile({ $ref: `${SCHEMA_ID}#/schemas/error_response` });
-const parseLifecycleEvent = ajv.compile({ $ref: `${SCHEMA_ID}#/schemas/event` });
-const parseSubscriptionEvent = ajv.compile({ $ref: `${SCHEMA_ID}#/schemas/subscription_event` });
+const parseSuccessResponse = ajv.compile<SuccessResponse>({
+  $ref: `${SCHEMA_ID}#/schemas/success_response`,
+});
+const parseErrorResponse = ajv.compile<ErrorResponse>({
+  $ref: `${SCHEMA_ID}#/schemas/error_response`,
+});
+const parseLifecycleEvent = ajv.compile<EventEnvelope>({
+  $ref: `${SCHEMA_ID}#/schemas/event`,
+});
+const parseSubscriptionEvent = ajv.compile<SubscriptionEventEnvelope>({
+  $ref: `${SCHEMA_ID}#/schemas/subscription_event`,
+});
 
-/** Parses an error response, while success variant parsing remains correlated to its method. */
-export function assertHerdrWireEnvelope(value: unknown, requestId: string): void {
-  if (value !== null && typeof value === "object" && "result" in value) return;
-  if (parseErrorResponse(value)) return;
-  throw invalidWireValue("response", requestId, parseErrorResponse.errors ?? []);
+/** Parses an untrusted wire response into the generated success or error contract. */
+export function parseHerdrWireResponse(
+  value: unknown,
+  requestId: string,
+): SuccessResponse | ErrorResponse {
+  if (parseSuccessResponse(value) || parseErrorResponse(value)) return value;
+  throw invalidWireValue("response", requestId, [
+    ...(parseSuccessResponse.errors ?? []),
+    ...(parseErrorResponse.errors ?? []),
+  ]);
 }
 
-/** Parses a known-discriminant success result against the bundled protocol schema. */
-export function assertHerdrWireSuccessResult(result: unknown, requestId: string): void {
-  const response = { id: requestId, result };
-  if (parseSuccessResponse(response)) return;
-  throw invalidWireValue("response", requestId, parseSuccessResponse.errors ?? []);
-}
-
-/** Parses either lifecycle or specialized event envelope against the bundled schema. */
-export function assertHerdrWireEvent(value: unknown, requestId: string): void {
-  if (parseLifecycleEvent(value) || parseSubscriptionEvent(value)) return;
+/** Parses an untrusted event line into one generated Herdr envelope family. */
+export function parseHerdrWireEvent(
+  value: unknown,
+  requestId: string,
+): EventEnvelope | SubscriptionEventEnvelope {
+  if (parseLifecycleEvent(value) || parseSubscriptionEvent(value)) return value;
   throw invalidWireValue("event", requestId, [
     ...(parseLifecycleEvent.errors ?? []),
     ...(parseSubscriptionEvent.errors ?? []),
@@ -37,11 +49,7 @@ function invalidWireValue(
   kind: "response" | "event",
   requestId: string,
   errors: readonly ErrorObject[],
-): HerdrError {
+): Error {
   const detail = ajv.errorsText(errors.slice(0, 5), { separator: "; " });
-  return new HerdrError(
-    `invalid_${kind}`,
-    `Wire ${kind} failed schema parsing: ${detail}`,
-    requestId,
-  );
+  return new Error(`Herdr wire ${kind} failed schema parsing for request ${requestId}: ${detail}`);
 }

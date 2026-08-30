@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 18,
+  "protocol": 21,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -1742,8 +1742,10 @@
             "kilo",
             "hermes",
             "qodercli",
+            "qwen",
             "cursor",
             "mastracode",
+            "antigravity_cli",
             "grok"
           ],
           "type": "string"
@@ -1984,6 +1986,9 @@
         },
         "PaneGraphicsClearParams": {
           "properties": {
+            "layer_id": {
+              "type": ["string", "null"]
+            },
             "pane_id": {
               "type": "string"
             }
@@ -1992,7 +1997,7 @@
           "type": "object"
         },
         "PaneGraphicsFormat": {
-          "enum": ["png", "rgb", "rgba"],
+          "enum": ["png", "rgb", "rgba", "bgra"],
           "type": "string"
         },
         "PaneGraphicsPlacementParams": {
@@ -2041,6 +2046,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "layer_id": {
+              "type": ["string", "null"]
+            },
             "pane_id": {
               "type": "string"
             },
@@ -2052,9 +2060,26 @@
                 "viewport_col": 0,
                 "viewport_row": 0
               }
+            },
+            "z_index": {
+              "default": 0,
+              "format": "int32",
+              "type": "integer"
             }
           },
           "required": ["pane_id", "format", "image_width", "image_height"],
+          "type": "object"
+        },
+        "PaneInputSetParams": {
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            },
+            "right_click": {
+              "$ref": "#/schemas/request/$defs/PaneRightClickTarget"
+            }
+          },
+          "required": ["pane_id", "right_click"],
           "type": "object"
         },
         "PaneLayoutParams": {
@@ -2365,6 +2390,10 @@
           "required": ["direction"],
           "type": "object"
         },
+        "PaneRightClickTarget": {
+          "enum": ["herdr", "pane"],
+          "type": "string"
+        },
         "PaneSendInputParams": {
           "properties": {
             "keys": {
@@ -2431,6 +2460,10 @@
             "ratio": {
               "format": "float",
               "type": ["number", "null"]
+            },
+            "right_click": {
+              "$ref": "#/schemas/request/$defs/PaneRightClickTarget",
+              "default": "herdr"
             },
             "target_pane_id": {
               "type": ["string", "null"]
@@ -3230,6 +3263,18 @@
           "enum": ["top-left", "top-right", "bottom-left", "bottom-right"],
           "type": "string"
         },
+        "WorkspaceCloseParams": {
+          "properties": {
+            "close_group": {
+              "type": "boolean"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": ["workspace_id"],
+          "type": "object"
+        },
         "WorkspaceCreateParams": {
           "properties": {
             "cwd": {
@@ -3376,6 +3421,9 @@
             "path": {
               "type": ["string", "null"]
             },
+            "trust_repository": {
+              "type": "boolean"
+            },
             "workspace_id": {
               "type": ["string", "null"]
             }
@@ -3386,6 +3434,9 @@
           "properties": {
             "cwd": {
               "type": ["string", "null"]
+            },
+            "trust_repository": {
+              "type": "boolean"
             },
             "workspace_id": {
               "type": ["string", "null"]
@@ -3411,6 +3462,9 @@
             "path": {
               "type": ["string", "null"]
             },
+            "trust_repository": {
+              "type": "boolean"
+            },
             "workspace_id": {
               "type": ["string", "null"]
             }
@@ -3421,6 +3475,9 @@
           "properties": {
             "force": {
               "default": false,
+              "type": "boolean"
+            },
+            "trust_repository": {
               "type": "boolean"
             },
             "workspace_id": {
@@ -3674,7 +3731,7 @@
               "type": "string"
             },
             "params": {
-              "$ref": "#/schemas/request/$defs/WorkspaceTarget"
+              "$ref": "#/schemas/request/$defs/WorkspaceCloseParams"
             }
           },
           "required": ["method", "params"],
@@ -4195,6 +4252,19 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneTarget"
+            }
+          },
+          "required": ["method", "params"],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.input.set",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneInputSetParams"
             }
           },
           "required": ["method", "params"],
@@ -5638,8 +5708,10 @@
             "kilo",
             "hermes",
             "qodercli",
+            "qwen",
             "cursor",
             "mastracode",
+            "antigravity_cli",
             "grok"
           ],
           "type": "string"
@@ -7259,6 +7331,26 @@
             },
             {
               "properties": {
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "sequence": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "pane_graphics_frame_ack",
+                  "type": "string"
+                }
+              },
+              "required": ["type", "sequence", "revision"],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "cell_height_px": {
                   "format": "uint32",
                   "minimum": 0,
@@ -7269,12 +7361,53 @@
                   "minimum": 0,
                   "type": "integer"
                 },
+                "file_frame_damage": {
+                  "default": false,
+                  "description": "Accepts damage metadata while still consuming a complete canonical file.",
+                  "type": "boolean"
+                },
+                "file_frame_direct_max_bytes": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": ["integer", "null"]
+                },
+                "file_frame_directory": {
+                  "type": ["string", "null"]
+                },
+                "file_frame_formats": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "file_frame_max_bytes": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": ["integer", "null"]
+                },
+                "file_frame_transport": {
+                  "type": ["string", "null"]
+                },
+                "max_layers_per_pane": {
+                  "default": 0,
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "pane_visible": {
+                  "description": "True only when this pane is on the currently rendered terminal surface.",
+                  "type": "boolean"
+                },
+                "pixel_mouse": {
+                  "default": false,
+                  "type": "boolean"
+                },
                 "type": {
                   "const": "pane_graphics_info",
                   "type": "string"
                 }
               },
-              "required": ["type", "cell_width_px", "cell_height_px"],
+              "required": ["type", "cell_width_px", "cell_height_px", "pane_visible"],
               "type": "object"
             },
             {

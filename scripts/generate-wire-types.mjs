@@ -17,6 +17,7 @@ const resultMethods = {
     "pane.send_text",
     "pane.send_keys",
     "pane.send_input",
+    "pane.input.set",
     "pane.graphics.set",
     "pane.graphics.clear",
     "pane.graphics.stream",
@@ -128,7 +129,7 @@ for (const [schemaName, typeName, fileName] of [
 const methodEntries = Object.entries(resultTypeByMethod).sort(([left], [right]) =>
   left.localeCompare(right),
 );
-const mapSource = `/** Generated and exhaustively checked against the bundled Herdr schema; do not edit. */\nimport type { Request } from "./wire-request.ts";\nimport type { ResponseResult } from "./wire-success-response.ts";\n\nexport interface WireMethodMap {\n${methodEntries.map(([method, result]) => `  readonly ${JSON.stringify(method)}: { readonly params: ${method === "pane.graphics.stream" ? "{ readonly pane_id: string }" : `Extract<Request, { readonly method: ${JSON.stringify(method)} }>["params"]`}; readonly result: Extract<ResponseResult, { readonly type: ${method === "plugin.pane.open" ? '"plugin_pane_opened" | "ok"' : JSON.stringify(result)} }> };`).join("\n")}\n}\n\n/** Every schema-declared request method plus the schema-skipped binary graphics stream. */\nexport type WireMethod = keyof WireMethodMap;\n`;
+const mapSource = `/** Generated and exhaustively checked against the bundled Herdr schema; do not edit. */\nimport type { Request } from "./wire-request.ts";\nimport type { ResponseResult } from "./wire-success-response.ts";\n\nexport interface WireMethodMap {\n${methodEntries.map(([method, result]) => `  readonly ${JSON.stringify(method)}: { readonly params: ${method === "pane.graphics.stream" ? "{ readonly pane_id: string; readonly layer_id?: string | null; readonly z_index?: number }" : `Extract<Request, { readonly method: ${JSON.stringify(method)} }>["params"]`}; readonly result: Extract<ResponseResult, { readonly type: ${method === "plugin.pane.open" ? '"plugin_pane_opened" | "ok"' : JSON.stringify(result)} }> };`).join("\n")}\n}\n\n/** Every schema-declared request method plus the schema-skipped binary graphics stream. */\nexport type WireMethod = keyof WireMethodMap;\n\n/** Success discriminants accepted for each correlated wire method. */\nexport const wireResultTypesByMethod = {\n${methodEntries.map(([method, result]) => `  ${JSON.stringify(method)}: [${method === "plugin.pane.open" ? '"plugin_pane_opened", "ok"' : JSON.stringify(result)}],`).join("\n")}\n} as const satisfies { readonly [Method in WireMethod]: readonly WireMethodMap[Method]["result"]["type"][] };\n`;
 await writeFile(new URL("wire-method-map.ts", generatedDirectory), mapSource);
 
 function rewriteLocalReferences(value, prefix, replacement) {

@@ -96,7 +96,7 @@ export type Request = {
     }
   | {
       method: "workspace.close";
-      params: WorkspaceTarget;
+      params: WorkspaceCloseParams;
       [k: string]: unknown;
     }
   | {
@@ -297,6 +297,11 @@ export type Request = {
   | {
       method: "pane.focus";
       params: PaneTarget;
+      [k: string]: unknown;
+    }
+  | {
+      method: "pane.input.set";
+      params: PaneInputSetParams;
       [k: string]: unknown;
     }
   | {
@@ -573,7 +578,8 @@ export type LayoutNode =
       type: "split";
       [k: string]: unknown;
     };
-export type PaneGraphicsFormat = "png" | "rgb" | "rgba";
+export type PaneRightClickTarget = "herdr" | "pane";
+export type PaneGraphicsFormat = "png" | "rgb" | "rgba" | "bgra";
 export type PaneAgentState = "idle" | "working" | "blocked" | "unknown";
 export type Subscription =
   | {
@@ -819,8 +825,10 @@ export type IntegrationTarget =
   | "kilo"
   | "hermes"
   | "qodercli"
+  | "qwen"
   | "cursor"
   | "mastracode"
+  | "antigravity_cli"
   | "grok";
 export type PopupSize = number | string;
 export type PluginPanePlacement = "overlay" | "popup" | "split" | "tab" | "zoomed";
@@ -886,8 +894,14 @@ export interface WorkspaceReportMetadataParams {
   workspace_id: string;
   [k: string]: unknown;
 }
+export interface WorkspaceCloseParams {
+  close_group?: boolean;
+  workspace_id: string;
+  [k: string]: unknown;
+}
 export interface WorktreeListParams {
   cwd?: string | null;
+  trust_repository?: boolean;
   workspace_id?: string | null;
   [k: string]: unknown;
 }
@@ -898,6 +912,7 @@ export interface WorktreeCreateParams {
   focus?: boolean;
   label?: string | null;
   path?: string | null;
+  trust_repository?: boolean;
   workspace_id?: string | null;
   [k: string]: unknown;
 }
@@ -907,11 +922,13 @@ export interface WorktreeOpenParams {
   focus?: boolean;
   label?: string | null;
   path?: string | null;
+  trust_repository?: boolean;
   workspace_id?: string | null;
   [k: string]: unknown;
 }
 export interface WorktreeRemoveParams {
   force?: boolean;
+  trust_repository?: boolean;
   workspace_id: string;
   [k: string]: unknown;
 }
@@ -1017,6 +1034,7 @@ export interface PaneSplitParams {
   };
   focus?: boolean;
   ratio?: number | null;
+  right_click?: "herdr" | "pane";
   target_pane_id?: string | null;
   workspace_id?: string | null;
   [k: string]: unknown;
@@ -1099,6 +1117,11 @@ export interface PaneTarget {
   pane_id: string;
   [k: string]: unknown;
 }
+export interface PaneInputSetParams {
+  pane_id: string;
+  right_click: PaneRightClickTarget;
+  [k: string]: unknown;
+}
 export interface PaneRenameParams {
   label?: string | null;
   pane_id: string;
@@ -1133,8 +1156,10 @@ export interface PaneGraphicsSetParams {
   format: PaneGraphicsFormat;
   image_height: number;
   image_width: number;
+  layer_id?: string | null;
   pane_id: string;
   placement?: PaneGraphicsPlacementParams;
+  z_index?: number;
   [k: string]: unknown;
 }
 export interface PaneGraphicsPlacementParams {
@@ -1145,6 +1170,7 @@ export interface PaneGraphicsPlacementParams {
   [k: string]: unknown;
 }
 export interface PaneGraphicsClearParams {
+  layer_id?: string | null;
   pane_id: string;
   [k: string]: unknown;
 }

@@ -132,7 +132,15 @@ export interface WireMethodMap {
     readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
   };
   readonly "pane.graphics.stream": {
-    readonly params: { readonly pane_id: string };
+    readonly params: {
+      readonly pane_id: string;
+      readonly layer_id?: string | null;
+      readonly z_index?: number;
+    };
+    readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
+  };
+  readonly "pane.input.set": {
+    readonly params: Extract<Request, { readonly method: "pane.input.set" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
   };
   readonly "pane.layout": {
@@ -374,3 +382,101 @@ export interface WireMethodMap {
 
 /** Every schema-declared request method plus the schema-skipped binary graphics stream. */
 export type WireMethod = keyof WireMethodMap;
+
+/** Success discriminants accepted for each correlated wire method. */
+export const wireResultTypesByMethod = {
+  "agent.explain": ["agent_explain"],
+  "agent.focus": ["agent_info"],
+  "agent.get": ["agent_info"],
+  "agent.list": ["agent_list"],
+  "agent.prompt": ["agent_prompted"],
+  "agent.read": ["pane_read"],
+  "agent.rename": ["agent_info"],
+  "agent.send_keys": ["ok"],
+  "agent.start": ["agent_started"],
+  "agent.view.clear": ["agent_view"],
+  "agent.view.set": ["agent_view"],
+  "agent.wait": ["agent_info"],
+  "client.window_title.clear": ["client_window_title"],
+  "client.window_title.set": ["client_window_title"],
+  "events.subscribe": ["subscription_started"],
+  "events.wait": ["wait_matched"],
+  "integration.install": ["integration_install"],
+  "integration.uninstall": ["integration_uninstall"],
+  "layout.apply": ["layout_apply"],
+  "layout.export": ["layout_export"],
+  "layout.set_split_ratio": ["layout_split_ratio_set"],
+  "notification.show": ["notification_show"],
+  "pane.clear_agent_authority": ["ok"],
+  "pane.close": ["ok"],
+  "pane.current": ["pane_current"],
+  "pane.edges": ["pane_edges"],
+  "pane.focus": ["pane_info"],
+  "pane.focus_direction": ["pane_focus_direction"],
+  "pane.get": ["pane_info"],
+  "pane.graphics.clear": ["ok"],
+  "pane.graphics.info": ["pane_graphics_info"],
+  "pane.graphics.set": ["ok"],
+  "pane.graphics.stream": ["ok"],
+  "pane.input.set": ["ok"],
+  "pane.layout": ["pane_layout"],
+  "pane.list": ["pane_list"],
+  "pane.move": ["pane_move"],
+  "pane.neighbor": ["pane_neighbor"],
+  "pane.process_info": ["pane_process_info"],
+  "pane.read": ["pane_read"],
+  "pane.release_agent": ["ok"],
+  "pane.rename": ["pane_info"],
+  "pane.report_agent": ["ok"],
+  "pane.report_agent_session": ["ok"],
+  "pane.report_metadata": ["ok"],
+  "pane.resize": ["pane_resize"],
+  "pane.send_input": ["ok"],
+  "pane.send_keys": ["ok"],
+  "pane.send_text": ["ok"],
+  "pane.split": ["pane_info"],
+  "pane.swap": ["pane_swap"],
+  "pane.wait_for_output": ["output_matched"],
+  "pane.zoom": ["pane_zoom"],
+  ping: ["pong"],
+  "plugin.action.invoke": ["plugin_action_invoked"],
+  "plugin.action.list": ["plugin_action_list"],
+  "plugin.disable": ["plugin_disabled"],
+  "plugin.enable": ["plugin_enabled"],
+  "plugin.link": ["plugin_linked"],
+  "plugin.list": ["plugin_list"],
+  "plugin.log.list": ["plugin_log_list"],
+  "plugin.pane.close": ["plugin_pane_closed"],
+  "plugin.pane.focus": ["plugin_pane_focused"],
+  "plugin.pane.open": ["plugin_pane_opened", "ok"],
+  "plugin.unlink": ["plugin_unlinked"],
+  "popup.close": ["ok"],
+  "server.agent_manifests": ["agent_manifest_status"],
+  "server.live_handoff": ["ok"],
+  "server.reload_agent_manifests": ["agent_manifest_reload"],
+  "server.reload_config": ["config_reload"],
+  "server.stop": ["ok"],
+  "session.snapshot": ["session_snapshot"],
+  "tab.close": ["ok"],
+  "tab.create": ["tab_created"],
+  "tab.focus": ["tab_info"],
+  "tab.get": ["tab_info"],
+  "tab.list": ["tab_list"],
+  "tab.move": ["tab_list"],
+  "tab.rename": ["tab_info"],
+  "workspace.close": ["ok"],
+  "workspace.create": ["workspace_created"],
+  "workspace.focus": ["workspace_info"],
+  "workspace.get": ["workspace_info"],
+  "workspace.list": ["workspace_list"],
+  "workspace.move": ["workspace_list"],
+  "workspace.move_block": ["workspace_list"],
+  "workspace.rename": ["workspace_info"],
+  "workspace.report_metadata": ["ok"],
+  "worktree.create": ["worktree_created"],
+  "worktree.list": ["worktree_list"],
+  "worktree.open": ["worktree_opened"],
+  "worktree.remove": ["worktree_removed"],
+} as const satisfies {
+  readonly [Method in WireMethod]: readonly WireMethodMap[Method]["result"]["type"][];
+};
