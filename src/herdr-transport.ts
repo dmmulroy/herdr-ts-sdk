@@ -1,3 +1,10 @@
+/**
+ * Owns Herdr Unix-socket requests, compatibility, and stream handshakes.
+ *
+ * The transport correlates NDJSON responses, shares protocol compatibility checks, enforces deadlines and frame limits, translates server failures, and scopes socket cleanup.
+ *
+ * @since 0.8.2
+ */
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { NodeStream } from "@effect/platform-node-shared";
@@ -58,7 +65,12 @@ type CamelCaseWireValue<Value> = Value extends string | number | boolean | null 
         }
       : never;
 
-/** Camel-cased SDK parameters correlated to one generated wire method. */
+/**
+ * Camel-cased SDK parameters correlated to one generated wire method.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type HerdrWireParameters<Method extends WireMethod> = Method extends "ping"
   ? {
       readonly application?: {
@@ -68,23 +80,43 @@ export type HerdrWireParameters<Method extends WireMethod> = Method extends "pin
     }
   : CamelCaseWireValue<WireMethodMap[Method]["params"]>;
 
-/** Local request options applied by the transport rather than the Herdr server. */
+/**
+ * Local request options applied by the transport rather than the Herdr server.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const HerdrTransportRequestOptions = Schema.Struct({
   requestId: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
   requestTimeout: Schema.OptionFromOptionalKey(HerdrRequestDeadline),
 });
 
-/** Normalized local request options consumed by transport internals. */
+/**
+ * Normalized local request options consumed by transport internals.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrTransportRequestOptions extends Schema.Schema.Type<
   typeof HerdrTransportRequestOptions
 > {}
 
-/** Ergonomic request options accepted by public SDK operations. */
+/**
+ * Ergonomic request options accepted by public SDK operations.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrTransportRequestOptionsEncoded extends Schema.Codec.Encoded<
   typeof HerdrTransportRequestOptions
 > {}
 
-/** Expected failures shared by ordinary Herdr transport requests. */
+/**
+ * Expected failures shared by ordinary Herdr transport requests.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export type HerdrTransportRequestError =
   | HerdrTransportError
   | HerdrInvalidInput
@@ -94,14 +126,24 @@ export type HerdrTransportRequestError =
   | HerdrUnsupportedResult
   | HerdrServerError;
 
-/** Expected request failures for a specific generated Herdr method. */
+/**
+ * Expected request failures for a specific generated Herdr method.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export type HerdrTransportMethodError<Method extends WireMethod> =
   | HerdrTransportRequestError
   | (Method extends "events.wait" ? HerdrUnsupportedEvent : never);
 
 type HerdrOrdinaryWireMethod = Exclude<WireMethod, "events.wait">;
 
-/** Correlated success returned after the generated method result contract is checked. */
+/**
+ * Correlated success returned after the generated method result contract is checked.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrTransportSuccess<Method extends WireMethod> {
   /** Wire request identifier echoed by the server. */
   readonly requestId: string;
@@ -109,7 +151,12 @@ export interface HerdrTransportSuccess<Method extends WireMethod> {
   readonly result: WireMethodMap[Method]["result"];
 }
 
-/** Scoped stream handshake retaining the socket until the owning scope closes. */
+/**
+ * Scoped stream handshake retaining the socket until the owning scope closes.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrTransportStream<
   Method extends "events.subscribe" | "pane.graphics.stream",
 > extends HerdrTransportSuccess<Method> {
@@ -119,7 +166,12 @@ export interface HerdrTransportStream<
   readonly write: (bytes: Uint8Array) => Effect.Effect<void, HerdrTransportError>;
 }
 
-/** Deep Unix-socket and protocol capability shared by every Herdr namespace service. */
+/**
+ * Deep Unix-socket and protocol capability shared by every Herdr namespace service.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IHerdrTransport {
   /** Sends one request after the shared protocol compatibility check. */
   readonly request: {
@@ -151,7 +203,12 @@ export interface IHerdrTransport {
   ) => Effect.Effect<void, HerdrInvalidInput | HerdrTransportError | HerdrRequestTimeout>;
 }
 
-/** Yieldable Effect service owning Herdr Unix-socket and protocol operations. */
+/**
+ * Yieldable Effect service owning Herdr Unix-socket and protocol operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class HerdrTransport extends Context.Service<HerdrTransport, IHerdrTransport>()(
   "@herdr/sdk/HerdrTransport",
 ) {}
@@ -200,7 +257,12 @@ const HerdrWaitEventProbe = Schema.Struct({
 
 type TransportOperation = HerdrTransportError["operation"];
 
-/** Constructs the transport while preserving its Herdr configuration requirement. */
+/**
+ * Constructs the transport while preserving its Herdr configuration requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeHerdrTransport = Effect.gen(function* () {
   const config = yield* HerdrConfig;
 
@@ -435,14 +497,24 @@ export const makeHerdrTransport = Effect.gen(function* () {
   });
 });
 
-/** Provides the transport while retaining its Herdr configuration requirement. */
+/**
+ * Provides the transport while retaining its Herdr configuration requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const herdrTransportLayerWithoutDependencies: Layer.Layer<
   HerdrTransport,
   never,
   HerdrConfig
 > = Layer.effect(HerdrTransport, makeHerdrTransport);
 
-/** Production transport Layer using the ambient Herdr configuration Layer. */
+/**
+ * Production transport Layer using the ambient Herdr configuration Layer.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const herdrTransportLayer = herdrTransportLayerWithoutDependencies.pipe(
   Layer.provide(herdrConfigLayer),
 );
@@ -489,7 +561,12 @@ function connectSocket(
   });
 }
 
-/** Resolves Herdr's filesystem-shaped IPC name to Node's Windows named-pipe endpoint. */
+/**
+ * Resolves Herdr's filesystem-shaped IPC name to Node's Windows named-pipe endpoint.
+ *
+ * @category configuration
+ * @since 0.8.2
+ */
 export function resolveHerdrSocketEndpoint(
   socketPath: string,
   platform: NodeJS.Platform = process.platform,

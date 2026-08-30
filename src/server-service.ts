@@ -1,3 +1,10 @@
+/**
+ * Controls Herdr server lifecycle and compatibility operations.
+ *
+ * The server service exposes ping, stop, live handoff, configuration reload, and agent-manifest cache inspection through the shared transport.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import {
   AgentManifest,
@@ -22,10 +29,20 @@ const parseConfigReloadResult = Schema.decodeUnknownEffect(ConfigReloadResult);
 const parsePingResult = Schema.decodeUnknownEffect(PingResult);
 const parseServerLiveHandoffInput = Schema.decodeUnknownEffect(ServerLiveHandoffInput);
 
-/** Expected failure union for server lifecycle and compatibility operations. */
+/**
+ * Expected failure union for server lifecycle and compatibility operations.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export type ServerOperationError = HerdrTransportRequestError;
 
-/** Server lifecycle, compatibility, configuration, and manifest capability. */
+/**
+ * Server lifecycle, compatibility, configuration, and manifest capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IServerService {
   /** Pings the server and verifies protocol compatibility. */
   readonly ping: (
@@ -54,12 +71,22 @@ export interface IServerService {
   ) => Effect.Effect<readonly AgentManifest[], ServerOperationError>;
 }
 
-/** Yieldable Effect service for Herdr server operations. */
+/**
+ * Yieldable Effect service for Herdr server operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class ServerService extends Context.Service<ServerService, IServerService>()(
   "@herdr/sdk/ServerService",
 ) {}
 
-/** Constructs server operations while preserving the shared transport requirement. */
+/**
+ * Constructs server operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeServerService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -122,14 +149,24 @@ export const makeServerService = Effect.gen(function* () {
   });
 });
 
-/** Provides server operations while retaining the shared transport requirement. */
+/**
+ * Provides server operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const serverServiceLayerWithoutDependencies: Layer.Layer<
   ServerService,
   never,
   HerdrTransport
 > = Layer.effect(ServerService, makeServerService);
 
-/** Production server-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production server-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const serverServiceLayer = serverServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

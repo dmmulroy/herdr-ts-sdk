@@ -1,3 +1,10 @@
+/**
+ * Controls detected and launched terminal agents.
+ *
+ * The agent service discovers agents, reads their output, sends input, manages stable names, launches supported agent kinds, waits for lifecycle states, and owns the persistent foreground agent view.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import {
   type AgentName,
@@ -51,7 +58,12 @@ const parseHerdrKeySequence = Schema.decodeUnknownEffect(HerdrKeySequence);
 const parsePaneReadInput = Schema.decodeUnknownEffect(PaneReadInput);
 const parsePaneReadResult = Schema.decodeUnknownEffect(PaneReadResult);
 
-/** Nested persistent agent-view capability. */
+/**
+ * Nested persistent agent-view capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IAgentView {
   /** Activates or updates the foreground agent view. */
   readonly set: (
@@ -65,7 +77,12 @@ export interface IAgentView {
   ) => Effect.Effect<AgentViewState, HerdrTransportRequestError>;
 }
 
-/** Agent discovery, control, prompting, waiting, and view capability. */
+/**
+ * Agent discovery, control, prompting, waiting, and view capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IAgentService {
   /** Nested persistent agent-view operations. */
   readonly view: IAgentView;
@@ -125,12 +142,22 @@ export interface IAgentService {
   ) => Effect.Effect<Agent, HerdrTransportRequestError>;
 }
 
-/** Yieldable Effect service for Herdr agent operations. */
+/**
+ * Yieldable Effect service for Herdr agent operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class AgentService extends Context.Service<AgentService, IAgentService>()(
   "@herdr/sdk/AgentService",
 ) {}
 
-/** Constructs agent operations while preserving the shared transport requirement. */
+/**
+ * Constructs agent operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeAgentService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -316,14 +343,24 @@ export const makeAgentService = Effect.gen(function* () {
   });
 });
 
-/** Provides agent operations while retaining the shared transport requirement. */
+/**
+ * Provides agent operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const agentServiceLayerWithoutDependencies: Layer.Layer<
   AgentService,
   never,
   HerdrTransport
 > = Layer.effect(AgentService, makeAgentService);
 
-/** Production agent-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production agent-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const agentServiceLayer = agentServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

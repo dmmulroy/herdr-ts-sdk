@@ -1,3 +1,10 @@
+/**
+ * Controls Herdr workspace lifecycle, focus, ordering, and metadata.
+ *
+ * Workspace creation returns the initial tab and pane atomically, and block movement preserves contiguous workspace groups.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { type WorkspaceId } from "./herdr-domain.ts";
 import {
@@ -30,10 +37,20 @@ const parseWorkspaceMetadataReportInput = Schema.decodeUnknownEffect(WorkspaceMe
 const parseWorkspaceMoveBlockInput = Schema.decodeUnknownEffect(WorkspaceMoveBlockInput);
 const parseWorkspaceMoveInput = Schema.decodeUnknownEffect(WorkspaceMoveInput);
 
-/** Expected failure union for workspace protocol operations. */
+/**
+ * Expected failure union for workspace protocol operations.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export type WorkspaceOperationError = HerdrTransportRequestError;
 
-/** Workspace lifecycle, ordering, focus, and metadata capability. */
+/**
+ * Workspace lifecycle, ordering, focus, and metadata capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IWorkspaceService {
   /** Creates a workspace and its initial tab and root pane. */
   readonly create: (
@@ -90,12 +107,22 @@ export interface IWorkspaceService {
   ) => Effect.Effect<void, WorkspaceOperationError>;
 }
 
-/** Yieldable Effect service for Herdr workspace operations. */
+/**
+ * Yieldable Effect service for Herdr workspace operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class WorkspaceService extends Context.Service<WorkspaceService, IWorkspaceService>()(
   "@herdr/sdk/WorkspaceService",
 ) {}
 
-/** Constructs workspace operations while preserving the shared transport requirement. */
+/**
+ * Constructs workspace operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeWorkspaceService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -251,14 +278,24 @@ export const makeWorkspaceService = Effect.gen(function* () {
   });
 });
 
-/** Provides workspace operations while retaining the shared transport requirement. */
+/**
+ * Provides workspace operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const workspaceServiceLayerWithoutDependencies: Layer.Layer<
   WorkspaceService,
   never,
   HerdrTransport
 > = Layer.effect(WorkspaceService, makeWorkspaceService);
 
-/** Production workspace-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production workspace-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const workspaceServiceLayer = workspaceServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

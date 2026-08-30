@@ -1,3 +1,10 @@
+/**
+ * Controls Herdr panes, terminal input and output, geometry, metadata, and graphics.
+ *
+ * The nested graphics capability supports validated one-shot frames and scope-owned streaming writers whose sockets close on success, failure, or interruption.
+ *
+ * @since 0.8.2
+ */
 import { Buffer } from "node:buffer";
 import {
   Context,
@@ -171,7 +178,12 @@ type PaneGraphicsStreamMessage =
     }
   | { readonly _tag: "Failure"; readonly error: PaneGraphicsStreamFailure };
 
-/** Scoped graphics writer whose socket is owned by the acquisition scope. */
+/**
+ * Scoped graphics writer whose socket is owned by the acquisition scope.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface PaneGraphicsWriter {
   /** Pane receiving every frame written by this resource. */
   readonly paneId: PaneId;
@@ -193,7 +205,12 @@ export interface PaneGraphicsWriter {
   >;
 }
 
-/** Nested pane graphics capability. */
+/**
+ * Nested pane graphics capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IPaneGraphics {
   /** Reads terminal-cell pixel dimensions for a pane. */
   readonly info: (
@@ -230,7 +247,12 @@ export interface IPaneGraphics {
   ) => Effect.Effect<PaneGraphicsWriter, HerdrTransportRequestError, Scope.Scope>;
 }
 
-/** Pane lifecycle, geometry, I/O, reporting, and graphics capability. */
+/**
+ * Pane lifecycle, geometry, I/O, reporting, and graphics capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IPaneService {
   /** Nested pane graphics operations. */
   readonly graphics: IPaneGraphics;
@@ -389,12 +411,22 @@ export interface IPaneService {
   ) => Effect.Effect<void, HerdrTransportRequestError>;
 }
 
-/** Yieldable Effect service for Herdr pane operations. */
+/**
+ * Yieldable Effect service for Herdr pane operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class PaneService extends Context.Service<PaneService, IPaneService>()(
   "@herdr/sdk/PaneService",
 ) {}
 
-/** Constructs pane operations while preserving the shared transport requirement. */
+/**
+ * Constructs pane operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makePaneService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -1101,11 +1133,21 @@ function decodePaneGraphicsResponseLine(
   });
 }
 
-/** Provides pane operations while retaining the shared transport requirement. */
+/**
+ * Provides pane operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const paneServiceLayerWithoutDependencies: Layer.Layer<PaneService, never, HerdrTransport> =
   Layer.effect(PaneService, makePaneService);
 
-/** Production pane-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production pane-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const paneServiceLayer = paneServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

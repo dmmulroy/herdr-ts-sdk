@@ -1,3 +1,10 @@
+/**
+ * Resolves and provides immutable Herdr SDK configuration.
+ *
+ * Configuration selects a Unix socket from explicit options or ambient inputs, validates request deadlines and caller identity, and exposes Layers for production and controlled composition.
+ *
+ * @since 0.8.2
+ */
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Config, Context, Duration, Effect, Layer, Option, Schema } from "effect";
@@ -14,7 +21,12 @@ import { HerdrConfigurationError } from "./herdr-errors.ts";
 const DEFAULT_REQUEST_TIMEOUT = Duration.seconds(5);
 const SUPPORTED_HERDR_PROTOCOL = 21 as const;
 
-/** Finite, non-negative deadline for ordinary Herdr transport requests. */
+/**
+ * Finite, non-negative deadline for ordinary Herdr transport requests.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const HerdrRequestDeadline = Schema.Duration.check(
   Schema.makeFilter((value) =>
     Duration.isFinite(value) && !Duration.isNegative(value)
@@ -23,25 +35,55 @@ export const HerdrRequestDeadline = Schema.Duration.check(
   ),
 );
 
-/** Parsed deadline for ordinary Herdr transport requests. */
+/**
+ * Parsed deadline for ordinary Herdr transport requests.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type HerdrRequestDeadline = typeof HerdrRequestDeadline.Type;
 
-/** Application identity sent during the Herdr compatibility handshake. */
+/**
+ * Application identity sent during the Herdr compatibility handshake.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const HerdrApplication = Schema.Struct({
   name: Schema.NonEmptyString,
   version: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
 });
 
-/** Parsed application identity sent during the Herdr compatibility handshake. */
+/**
+ * Parsed application identity sent during the Herdr compatibility handshake.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrApplication extends Schema.Schema.Type<typeof HerdrApplication> {}
 
-/** Supported Herdr wire protocol version. */
+/**
+ * Supported Herdr wire protocol version.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const HerdrProtocolVersion = Schema.Literal(SUPPORTED_HERDR_PROTOCOL);
 
-/** Supported Herdr wire protocol version. */
+/**
+ * Supported Herdr wire protocol version.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type HerdrProtocolVersion = typeof HerdrProtocolVersion.Type;
 
-/** Explicit SDK configuration accepted by {@link makeHerdrConfig}. */
+/**
+ * Explicit SDK configuration accepted by {@link makeHerdrConfig}.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const HerdrConfigOptions = Schema.Struct({
   socketPath: Schema.optionalKey(HerdrAbsolutePath),
   session: Schema.optionalKey(HerdrSessionName),
@@ -55,14 +97,24 @@ export const HerdrConfigOptions = Schema.Struct({
   ),
 );
 
-/** External representation of explicit Herdr SDK configuration. */
+/**
+ * External representation of explicit Herdr SDK configuration.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrConfigOptions extends Schema.Codec.Encoded<typeof HerdrConfigOptions> {}
 
 const parseHerdrConfigOptions = Schema.decodeUnknownEffect(HerdrConfigOptions);
 const parseHerdrDurationFromString = Schema.decodeUnknownEffect(Schema.DurationFromString);
 const parseHerdrRequestDeadline = Schema.decodeUnknownEffect(HerdrRequestDeadline);
 
-/** Immutable configuration consumed by Herdr SDK services. */
+/**
+ * Immutable configuration consumed by Herdr SDK services.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IHerdrConfig {
   /** Resolved local socket used for every Herdr request. */
   readonly socketPath: HerdrAbsolutePathValue;
@@ -76,7 +128,12 @@ export interface IHerdrConfig {
   readonly supportedProtocol: HerdrProtocolVersion;
 }
 
-/** Yieldable Effect service containing resolved Herdr SDK configuration. */
+/**
+ * Yieldable Effect service containing resolved Herdr SDK configuration.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class HerdrConfig extends Context.Service<HerdrConfig, IHerdrConfig>()(
   "@herdr/sdk/HerdrConfig",
 ) {}
@@ -93,7 +150,12 @@ const ambientHerdrConfig = Config.all({
 type AmbientHerdrConfig = Config.Success<typeof ambientHerdrConfig>;
 type ParsedHerdrConfigOptions = typeof HerdrConfigOptions.Type;
 
-/** Effect Config recipe that resolves ambient Herdr SDK configuration. */
+/**
+ * Effect Config recipe that resolves ambient Herdr SDK configuration.
+ *
+ * @category configuration
+ * @since 0.8.2
+ */
 export const herdrConfigRecipe: Config.Config<IHerdrConfig> = ambientHerdrConfig.pipe(
   Config.mapOrFail((ambient) =>
     resolveHerdrConfig({}, ambient).pipe(Effect.mapError((cause) => new Config.ConfigError(cause))),
@@ -110,31 +172,56 @@ const makeHerdrConfigEffect = Effect.fn("HerdrConfig.make")(
   Effect.mapError((cause) => new HerdrConfigurationError(cause)),
 );
 
-/** Constructs Herdr configuration using explicit options before ambient configuration. */
+/**
+ * Constructs Herdr configuration using explicit options before ambient configuration.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export function makeHerdrConfig(
   options: HerdrConfigOptions = {},
 ): Effect.Effect<HerdrConfig["Service"], HerdrConfigurationError> {
   return makeHerdrConfigEffect(options);
 }
 
-/** Provides Herdr configuration while preserving the active ConfigProvider. */
+/**
+ * Provides Herdr configuration while preserving the active ConfigProvider.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const herdrConfigLayerWithoutDependencies: Layer.Layer<
   HerdrConfig,
   HerdrConfigurationError
 > = Layer.effect(HerdrConfig, makeHerdrConfig());
 
-/** Production Layer that loads Herdr configuration from the active ConfigProvider. */
+/**
+ * Production Layer that loads Herdr configuration from the active ConfigProvider.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const herdrConfigLayer: Layer.Layer<HerdrConfig, HerdrConfigurationError> =
   herdrConfigLayerWithoutDependencies;
 
-/** Provides Herdr configuration resolved from explicit and ambient options. */
+/**
+ * Provides Herdr configuration resolved from explicit and ambient options.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export function herdrConfigLayerFromOptions(
   options: HerdrConfigOptions,
 ): Layer.Layer<HerdrConfig, HerdrConfigurationError> {
   return Layer.effect(HerdrConfig, makeHerdrConfig(options));
 }
 
-/** Provides an already parsed Herdr configuration value. */
+/**
+ * Provides an already parsed Herdr configuration value.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export function herdrConfigLayerFromValue(config: IHerdrConfig): Layer.Layer<HerdrConfig> {
   return Layer.succeed(HerdrConfig, HerdrConfig.of(config));
 }

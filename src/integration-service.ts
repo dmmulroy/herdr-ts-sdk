@@ -1,3 +1,10 @@
+/**
+ * Installs and removes Herdr terminal-agent integrations.
+ *
+ * The integration service accepts the schema-owned built-in integration targets and returns the server-reported change result.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Schema } from "effect";
 import { IntegrationChangeResult, type IntegrationTarget } from "./herdr-models.ts";
 import { decodeHerdrWire } from "./herdr-schema-boundary.ts";
@@ -11,7 +18,12 @@ import {
 
 const parseIntegrationChangeResult = Schema.decodeUnknownEffect(IntegrationChangeResult);
 
-/** Built-in integration installation and removal capability. */
+/**
+ * Built-in integration installation and removal capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IIntegrationService {
   /** Installs one built-in terminal-agent integration. */
   readonly install: (
@@ -25,12 +37,22 @@ export interface IIntegrationService {
   ) => Effect.Effect<IntegrationChangeResult, HerdrTransportRequestError>;
 }
 
-/** Yieldable Effect service for Herdr integrations. */
+/**
+ * Yieldable Effect service for Herdr integrations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class IntegrationService extends Context.Service<IntegrationService, IIntegrationService>()(
   "@herdr/sdk/IntegrationService",
 ) {}
 
-/** Constructs integration operations while preserving the shared transport requirement. */
+/**
+ * Constructs integration operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeIntegrationService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
   const change = defineHerdrOperation(
@@ -63,14 +85,24 @@ export const makeIntegrationService = Effect.gen(function* () {
   });
 });
 
-/** Provides integrations while retaining the shared transport requirement. */
+/**
+ * Provides integrations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const integrationServiceLayerWithoutDependencies: Layer.Layer<
   IntegrationService,
   never,
   HerdrTransport
 > = Layer.effect(IntegrationService, makeIntegrationService);
 
-/** Production integration-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production integration-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const integrationServiceLayer = integrationServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

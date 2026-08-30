@@ -1,3 +1,10 @@
+/**
+ * Manages installed plugins and their actions, logs, links, and panes.
+ *
+ * Nested plugin capabilities remain parent-owned while preserving placement-specific pane results and schema-normalized invocation context.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { type PaneId, type PluginActionId, type PluginId } from "./herdr-domain.ts";
 import {
@@ -43,7 +50,12 @@ const parsePluginPaneCloseResult = Schema.decodeUnknownEffect(PluginPaneCloseRes
 const parsePluginPaneOpenInput = Schema.decodeUnknownEffect(PluginPaneOpenInput);
 const parsePluginUnlinkResult = Schema.decodeUnknownEffect(PluginUnlinkResult);
 
-/** Nested plugin action capability. */
+/**
+ * Nested plugin action capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IPluginActions {
   /** Lists actions, optionally for one plugin. */
   readonly list: (
@@ -58,7 +70,12 @@ export interface IPluginActions {
   ) => Effect.Effect<PluginActionInvocation, HerdrTransportRequestError>;
 }
 
-/** Nested plugin command-log capability. */
+/**
+ * Nested plugin command-log capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IPluginLogs {
   /** Lists recent plugin command logs. */
   readonly list: (
@@ -67,7 +84,12 @@ export interface IPluginLogs {
   ) => Effect.Effect<readonly PluginCommandLog[], HerdrTransportRequestError>;
 }
 
-/** Nested plugin pane capability. */
+/**
+ * Nested plugin pane capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IPluginPanes {
   /** Opens a popup plugin pane without a persistent pane identifier. */
   readonly open: {
@@ -101,7 +123,12 @@ export interface IPluginPanes {
   ) => Effect.Effect<PluginPaneCloseResult, HerdrTransportRequestError>;
 }
 
-/** Plugin lifecycle plus nested action, log, and pane capability. */
+/**
+ * Plugin lifecycle plus nested action, log, and pane capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IPluginService {
   /** Nested plugin action operations. */
   readonly actions: IPluginActions;
@@ -136,12 +163,22 @@ export interface IPluginService {
   ) => Effect.Effect<InstalledPlugin, HerdrTransportRequestError>;
 }
 
-/** Yieldable Effect service for Herdr plugin operations. */
+/**
+ * Yieldable Effect service for Herdr plugin operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class PluginService extends Context.Service<PluginService, IPluginService>()(
   "@herdr/sdk/PluginService",
 ) {}
 
-/** Constructs plugin operations while preserving the shared transport requirement. */
+/**
+ * Constructs plugin operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makePluginService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -389,14 +426,24 @@ export const makePluginService = Effect.gen(function* () {
   });
 });
 
-/** Provides plugin operations while retaining the shared transport requirement. */
+/**
+ * Provides plugin operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const pluginServiceLayerWithoutDependencies: Layer.Layer<
   PluginService,
   never,
   HerdrTransport
 > = Layer.effect(PluginService, makePluginService);
 
-/** Production plugin-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production plugin-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const pluginServiceLayer = pluginServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

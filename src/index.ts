@@ -1,4 +1,12 @@
-/** Effect-native Herdr SDK public entrypoint. */
+/**
+ * Public entrypoint for the Effect-native Herdr SDK.
+ *
+ * Re-exports the root SDK, configuration, domain schemas, normalized models, typed errors,
+ * transport options, namespace services, constructors, and Layers. Generated wire contracts and
+ * socket implementation details remain private.
+ *
+ * @since 0.8.2
+ */
 export * from "./herdr-sdk.ts";
 export * from "./herdr-config.ts";
 export * from "./herdr-domain.ts";

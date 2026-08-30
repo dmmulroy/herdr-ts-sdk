@@ -27,7 +27,8 @@
     "build": "vp run generate && vp pack",
     "dev": "vp pack --watch",
     "test": "vp test",
-    "check": "vp check && pnpm run check:examples",
+    "check": "vp check && pnpm run check:docs && pnpm run check:examples",
+    "check:docs": "node scripts/check-public-jsdoc.mjs",
     "check:examples": "tsc --project examples/tsconfig.json",
     "example": "pnpm run build && node --experimental-strip-types",
     "prepublishOnly": "vp run build"

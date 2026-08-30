@@ -1,3 +1,10 @@
+/**
+ * Consumes Herdr lifecycle and pane events as typed Effect values.
+ *
+ * Subscriptions are cold, live-only streams with literal-specification narrowing; one-shot waits preserve the event type selected by their matcher.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Result, Schema, Stream } from "effect";
 import type { EventEnvelope } from "./generated/wire-event.ts";
 import type { SubscriptionEventEnvelope } from "./generated/wire-subscription-event.ts";
@@ -42,10 +49,20 @@ const parseEventSubscriptionSpec = Schema.decodeUnknownEffect(EventSubscriptionS
 const parseEventWaitInput = Schema.decodeUnknownEffect(EventWaitInput);
 const parseHerdrEvent = Schema.decodeUnknownEffect(HerdrEvent);
 
-/** Expected failures for subscription and one-shot event operations. */
+/**
+ * Expected failures for subscription and one-shot event operations.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export type EventOperationError = HerdrTransportRequestError | HerdrUnsupportedEvent;
 
-/** Typed event subscription and one-shot wait capability. */
+/**
+ * Typed event subscription and one-shot wait capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IEventService {
   /** Creates a cold, live-only stream whose acceptance defines the event sequence start. */
   readonly subscribe: <const Subscriptions extends readonly EventSubscriptionSpecEncoded[]>(
@@ -60,12 +77,22 @@ export interface IEventService {
   ) => Effect.Effect<EventForMatch<Match>, EventOperationError>;
 }
 
-/** Yieldable Effect service for Herdr event operations. */
+/**
+ * Yieldable Effect service for Herdr event operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class EventService extends Context.Service<EventService, IEventService>()(
   "@herdr/sdk/EventService",
 ) {}
 
-/** Constructs event operations while preserving the shared transport requirement. */
+/**
+ * Constructs event operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeEventService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -123,14 +150,24 @@ export const makeEventService = Effect.gen(function* () {
   });
 });
 
-/** Provides event operations while retaining the shared transport requirement. */
+/**
+ * Provides event operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const eventServiceLayerWithoutDependencies: Layer.Layer<
   EventService,
   never,
   HerdrTransport
 > = Layer.effect(EventService, makeEventService);
 
-/** Production event-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production event-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const eventServiceLayer = eventServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

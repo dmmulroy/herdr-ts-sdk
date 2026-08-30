@@ -1,3 +1,10 @@
+/**
+ * Discovers and manages Git worktrees through Herdr workspaces.
+ *
+ * Repository access requires an explicit trusted source, and create or open operations return the associated workspace, tab, and root pane together.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { type WorkspaceId } from "./herdr-domain.ts";
 import {
@@ -32,7 +39,12 @@ const parseWorktreeOpenResult = Schema.decodeUnknownEffect(WorktreeOpenResult);
 const parseWorktreeRemoveInput = Schema.decodeUnknownEffect(WorktreeRemoveInput);
 const parseWorktreeRemoveResult = Schema.decodeUnknownEffect(WorktreeRemoveResult);
 
-/** Git worktree discovery, creation, opening, and removal capability. */
+/**
+ * Git worktree discovery, creation, opening, and removal capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IWorktreeService {
   /** Lists worktrees in a resolved repository. */
   readonly list: (
@@ -57,12 +69,22 @@ export interface IWorktreeService {
   ) => Effect.Effect<WorktreeRemoveResult, HerdrTransportRequestError>;
 }
 
-/** Yieldable Effect service for Git worktree operations. */
+/**
+ * Yieldable Effect service for Git worktree operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class WorktreeService extends Context.Service<WorktreeService, IWorktreeService>()(
   "@herdr/sdk/WorktreeService",
 ) {}
 
-/** Constructs worktree operations while preserving the shared transport requirement. */
+/**
+ * Constructs worktree operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeWorktreeService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -171,14 +193,24 @@ export const makeWorktreeService = Effect.gen(function* () {
   });
 });
 
-/** Provides worktree operations while retaining the shared transport requirement. */
+/**
+ * Provides worktree operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const worktreeServiceLayerWithoutDependencies: Layer.Layer<
   WorktreeService,
   never,
   HerdrTransport
 > = Layer.effect(WorktreeService, makeWorktreeService);
 
-/** Production worktree-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production worktree-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const worktreeServiceLayer = worktreeServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

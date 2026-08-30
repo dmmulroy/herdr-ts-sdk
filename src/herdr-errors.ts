@@ -1,7 +1,19 @@
+/**
+ * Defines the typed failures exposed by Herdr SDK operations.
+ *
+ * Schema-backed tagged errors distinguish configuration, input, transport, timeout, compatibility, server, response, event, and graphics failures for targeted recovery.
+ *
+ * @since 0.8.2
+ */
 import { Option, Schema } from "effect";
 import { HerdrByteLength } from "./herdr-domain.ts";
 
-/** Failure to decode or resolve Herdr SDK configuration. */
+/**
+ * Failure to decode or resolve Herdr SDK configuration.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrConfigurationError extends Schema.TaggedError<HerdrConfigurationError>()(
   "HerdrConfigurationError",
   {
@@ -21,7 +33,12 @@ export class HerdrConfigurationError extends Schema.TaggedError<HerdrConfigurati
   }
 }
 
-/** Failure to parse caller input into the domain value required by one SDK operation. */
+/**
+ * Failure to parse caller input into the domain value required by one SDK operation.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrInvalidInput extends Schema.TaggedError<HerdrInvalidInput>()(
   "HerdrInvalidInput",
   {
@@ -40,7 +57,12 @@ export class HerdrInvalidInput extends Schema.TaggedError<HerdrInvalidInput>()(
   }
 }
 
-/** Local Unix-socket connection, read, write, or premature-close failure. */
+/**
+ * Local Unix-socket connection, read, write, or premature-close failure.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrTransportError extends Schema.TaggedError<HerdrTransportError>()(
   "HerdrTransportError",
   {
@@ -74,7 +96,12 @@ export class HerdrTransportError extends Schema.TaggedError<HerdrTransportError>
   }
 }
 
-/** Local deadline elapsed before a Herdr operation completed. */
+/**
+ * Local deadline elapsed before a Herdr operation completed.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrRequestTimeout extends Schema.TaggedError<HerdrRequestTimeout>()(
   "HerdrRequestTimeout",
   {
@@ -105,7 +132,12 @@ export class HerdrRequestTimeout extends Schema.TaggedError<HerdrRequestTimeout>
   }
 }
 
-/** Malformed, oversized, mismatched, or schema-invalid Herdr response. */
+/**
+ * Malformed, oversized, mismatched, or schema-invalid Herdr response.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrInvalidResponse extends Schema.TaggedError<HerdrInvalidResponse>()(
   "HerdrInvalidResponse",
   {
@@ -133,7 +165,12 @@ export class HerdrInvalidResponse extends Schema.TaggedError<HerdrInvalidRespons
   }
 }
 
-/** Server protocol version differs from protocol 21 supported by this SDK. */
+/**
+ * Server protocol version differs from protocol 21 supported by this SDK.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrUnsupportedProtocol extends Schema.TaggedError<HerdrUnsupportedProtocol>()(
   "HerdrUnsupportedProtocol",
   {
@@ -154,7 +191,12 @@ export class HerdrUnsupportedProtocol extends Schema.TaggedError<HerdrUnsupporte
   }
 }
 
-/** Success result discriminant is not supported for the requested operation. */
+/**
+ * Success result discriminant is not supported for the requested operation.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrUnsupportedResult extends Schema.TaggedError<HerdrUnsupportedResult>()(
   "HerdrUnsupportedResult",
   {
@@ -177,7 +219,12 @@ export class HerdrUnsupportedResult extends Schema.TaggedError<HerdrUnsupportedR
   }
 }
 
-/** Event discriminant is not supported by this SDK build. */
+/**
+ * Event discriminant is not supported by this SDK build.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrUnsupportedEvent extends Schema.TaggedError<HerdrUnsupportedEvent>()(
   "HerdrUnsupportedEvent",
   {
@@ -196,7 +243,12 @@ export class HerdrUnsupportedEvent extends Schema.TaggedError<HerdrUnsupportedEv
   }
 }
 
-/** Open-code server-returned failure correlated to one request. */
+/**
+ * Open-code server-returned failure correlated to one request.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrServerError extends Schema.TaggedError<HerdrServerError>()("HerdrServerError", {
   serverCode: Schema.String,
   serverMessage: Schema.String,
@@ -214,7 +266,12 @@ export class HerdrServerError extends Schema.TaggedError<HerdrServerError>()("He
   }
 }
 
-/** Graphics frame has invalid data or dimensions. */
+/**
+ * Graphics frame has invalid data or dimensions.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrInvalidFrame extends Schema.TaggedError<HerdrInvalidFrame>()(
   "HerdrInvalidFrame",
   {
@@ -239,7 +296,12 @@ export class HerdrInvalidFrame extends Schema.TaggedError<HerdrInvalidFrame>()(
   }
 }
 
-/** Graphics image exceeds the byte limit for its write mode. */
+/**
+ * Graphics image exceeds the byte limit for its write mode.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrImageTooLarge extends Schema.TaggedError<HerdrImageTooLarge>()(
   "HerdrImageTooLarge",
   {
@@ -267,7 +329,12 @@ export class HerdrImageTooLarge extends Schema.TaggedError<HerdrImageTooLarge>()
   }
 }
 
-/** Graphics writer was used after its owning scope closed. */
+/**
+ * Graphics writer was used after its owning scope closed.
+ *
+ * @category errors
+ * @since 0.8.2
+ */
 export class HerdrGraphicsStreamClosed extends Schema.TaggedError<HerdrGraphicsStreamClosed>()(
   "HerdrGraphicsStreamClosed",
   {

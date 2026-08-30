@@ -1,3 +1,10 @@
+/**
+ * Composes the complete Effect-native Herdr SDK.
+ *
+ * `HerdrSdk` is a yieldable namespace aggregate; its production Layer shares one configuration and transport while direct service Layers preserve visible requirements.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer } from "effect";
 import {
   AgentService,
@@ -76,7 +83,12 @@ import {
   worktreeServiceLayerWithoutDependencies,
 } from "./worktree-service.ts";
 
-/** Stripe-style aggregate of the exact Herdr configuration and namespace services. */
+/**
+ * Stripe-style aggregate of the exact Herdr configuration and namespace services.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface IHerdrSdk {
   /** Immutable configuration snapshot shared by the full SDK graph. */
   readonly config: IHerdrConfig;
@@ -112,10 +124,20 @@ export interface IHerdrSdk {
   readonly popups: IPopupService;
 }
 
-/** Yieldable Effect service aggregating the independently constructed Herdr namespaces. */
+/**
+ * Yieldable Effect service aggregating the independently constructed Herdr namespaces.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class HerdrSdk extends Context.Service<HerdrSdk, IHerdrSdk>()("@herdr/sdk/HerdrSdk") {}
 
-/** Aggregates exact contextual service values without constructing or proxying them. */
+/**
+ * Aggregates exact contextual service values without constructing or proxying them.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeHerdrSdk = Effect.gen(function* () {
   const config = yield* HerdrConfig;
   const server = yield* ServerService;
@@ -153,7 +175,12 @@ export const makeHerdrSdk = Effect.gen(function* () {
   });
 });
 
-/** Bundles Herdr namespace services while preserving their requirements. */
+/**
+ * Bundles Herdr namespace services while preserving their requirements.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const herdrSdkLayerWithoutDependencies = Layer.effect(HerdrSdk, makeHerdrSdk);
 
 const herdrNamespaceServicesLayerWithoutDependencies = Layer.mergeAll(
@@ -183,10 +210,20 @@ function makeHerdrSdkLayer(configLayer: Layer.Layer<HerdrConfig, HerdrConfigurat
   return herdrSdkLayerWithoutDependencies.pipe(Layer.provide(configuredNamespaces));
 }
 
-/** Production SDK Layer sharing one ambient configuration and transport instance. */
+/**
+ * Production SDK Layer sharing one ambient configuration and transport instance.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const herdrSdkLayer = makeHerdrSdkLayer(herdrConfigLayer);
 
-/** Creates a production SDK Layer with explicit options ahead of ambient configuration. */
+/**
+ * Creates a production SDK Layer with explicit options ahead of ambient configuration.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export function herdrSdkLayerFromOptions(
   options: HerdrConfigOptions,
 ): Layer.Layer<HerdrSdk, HerdrConfigurationError> {

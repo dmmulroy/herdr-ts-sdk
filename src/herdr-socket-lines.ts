@@ -1,25 +1,57 @@
+/**
+ * Frames newline-delimited JSON read from Herdr Unix sockets.
+ *
+ * The line buffer preserves partial frames across chunks and rejects oversized buffered data before unbounded memory can accumulate.
+ *
+ * @since 0.8.2
+ */
 import { Result } from "effect";
 import { HerdrInvalidResponse } from "./herdr-errors.ts";
 
-/** Incremental byte segments retained until a complete Herdr socket line arrives. */
+/**
+ * Incremental byte segments retained until a complete Herdr socket line arrives.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrSocketLineBuffer {
+  /** Ordered byte segments belonging to the current unterminated line. */
   readonly segments: readonly Uint8Array[];
+  /** Total bytes retained across `segments`, used to enforce the frame limit incrementally. */
   readonly byteLength: number;
 }
 
-/** Complete bounded lines plus bytes not consumed after an optional line limit. */
+/**
+ * Complete bounded lines plus bytes not consumed after an optional line limit.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface HerdrSocketLineSplit {
+  /** Partial line state to pass into the next split operation. */
   readonly buffer: HerdrSocketLineBuffer;
+  /** Complete newline-delimited frames without their newline bytes. */
   readonly lines: readonly Uint8Array[];
+  /** Exact input bytes left after the requested maximum line count was reached. */
   readonly remainder: readonly Uint8Array[];
 }
 
-/** Creates an empty incremental Herdr socket line buffer. */
+/**
+ * Creates an empty incremental Herdr socket line buffer.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export function makeHerdrSocketLineBuffer(): HerdrSocketLineBuffer {
   return { segments: [], byteLength: 0 };
 }
 
-/** Splits socket chunks into bounded lines while preserving exact unconsumed remainder bytes. */
+/**
+ * Splits socket chunks into bounded lines while preserving exact unconsumed remainder bytes.
+ *
+ * @category decoding
+ * @since 0.8.2
+ */
 export function splitHerdrSocketLines(
   state: HerdrSocketLineBuffer,
   chunks: readonly Uint8Array[],

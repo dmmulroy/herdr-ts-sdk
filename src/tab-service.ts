@@ -1,3 +1,10 @@
+/**
+ * Controls Herdr tab lifecycle, focus, labels, and ordering.
+ *
+ * Tab creation returns its root pane atomically, while list and move operations preserve server display order.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { type TabId } from "./herdr-domain.ts";
 import {
@@ -27,7 +34,12 @@ const parseTabLabel = Schema.decodeUnknownEffect(Schema.String);
 const parseTabListInput = Schema.decodeUnknownEffect(TabListInput);
 const parseTabMoveInput = Schema.decodeUnknownEffect(TabMoveInput);
 
-/** Tab lifecycle, ordering, and focus capability. */
+/**
+ * Tab lifecycle, ordering, and focus capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface ITabService {
   /** Creates a tab and root pane. */
   readonly create: (
@@ -68,12 +80,22 @@ export interface ITabService {
   ) => Effect.Effect<void, HerdrTransportRequestError>;
 }
 
-/** Yieldable Effect service for Herdr tab operations. */
+/**
+ * Yieldable Effect service for Herdr tab operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class TabService extends Context.Service<TabService, ITabService>()(
   "@herdr/sdk/TabService",
 ) {}
 
-/** Constructs tab operations while preserving the shared transport requirement. */
+/**
+ * Constructs tab operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeTabService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -149,11 +171,21 @@ export const makeTabService = Effect.gen(function* () {
   });
 });
 
-/** Provides tab operations while retaining the shared transport requirement. */
+/**
+ * Provides tab operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const tabServiceLayerWithoutDependencies: Layer.Layer<TabService, never, HerdrTransport> =
   Layer.effect(TabService, makeTabService);
 
-/** Production tab-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production tab-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const tabServiceLayer = tabServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

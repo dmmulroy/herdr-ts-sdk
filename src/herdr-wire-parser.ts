@@ -1,3 +1,10 @@
+/**
+ * Decodes generated Herdr wire envelopes into normalized protocol values.
+ *
+ * Response and event parsers keep generated snake-case contracts at the transport boundary and report malformed JSON as typed SDK failures.
+ *
+ * @since 0.8.2
+ */
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
 import herdrApiSchema from "../schema/herdr-api.schema.json" with { type: "json" };
 import type { ErrorResponse } from "./generated/wire-error-response.ts";
@@ -21,7 +28,12 @@ const parseSubscriptionEvent = ajv.compile<SubscriptionEventEnvelope>({
   $ref: `${SCHEMA_ID}#/schemas/subscription_event`,
 });
 
-/** Parses an untrusted wire response into the generated success or error contract. */
+/**
+ * Parses an untrusted wire response into the generated success or error contract.
+ *
+ * @category decoding
+ * @since 0.8.2
+ */
 export function parseHerdrWireResponse(
   value: unknown,
   requestId: string,
@@ -33,7 +45,12 @@ export function parseHerdrWireResponse(
   ]);
 }
 
-/** Parses an untrusted event line into one generated Herdr envelope family. */
+/**
+ * Parses an untrusted event line into one generated Herdr envelope family.
+ *
+ * @category decoding
+ * @since 0.8.2
+ */
 export function parseHerdrWireEvent(
   value: unknown,
   requestId: string,

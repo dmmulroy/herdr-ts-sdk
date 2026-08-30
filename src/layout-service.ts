@@ -1,3 +1,10 @@
+/**
+ * Exports, applies, and resizes declarative Herdr pane layouts.
+ *
+ * Recursive layout values let callers reproduce terminal arrangements without scripting a sequence of focus and split gestures.
+ *
+ * @since 0.8.2
+ */
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import type { HerdrAbsolutePath, HerdrEnvironment, PaneId } from "./herdr-domain.ts";
 import {
@@ -25,7 +32,12 @@ const parseLayoutDescription = Schema.decodeUnknownEffect(LayoutDescription);
 const parseLayoutSetSplitRatioInput = Schema.decodeUnknownEffect(LayoutSetSplitRatioInput);
 const parseLayoutTarget = Schema.decodeUnknownEffect(LayoutTarget);
 
-/** Declarative layout export, application, and split-ratio capability. */
+/**
+ * Declarative layout export, application, and split-ratio capability.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export interface ILayoutService {
   /** Exports a tab layout selected by tab, pane, or foreground focus. */
   readonly export: (
@@ -45,12 +57,22 @@ export interface ILayoutService {
   ) => Effect.Effect<LayoutDescription, HerdrTransportRequestError>;
 }
 
-/** Yieldable Effect service for Herdr declarative layout operations. */
+/**
+ * Yieldable Effect service for Herdr declarative layout operations.
+ *
+ * @category services
+ * @since 0.8.2
+ */
 export class LayoutService extends Context.Service<LayoutService, ILayoutService>()(
   "@herdr/sdk/LayoutService",
 ) {}
 
-/** Constructs layout operations while preserving the shared transport requirement. */
+/**
+ * Constructs layout operations while preserving the shared transport requirement.
+ *
+ * @category constructors
+ * @since 0.8.2
+ */
 export const makeLayoutService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
@@ -125,14 +147,24 @@ export const makeLayoutService = Effect.gen(function* () {
   });
 });
 
-/** Provides layout operations while retaining the shared transport requirement. */
+/**
+ * Provides layout operations while retaining the shared transport requirement.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const layoutServiceLayerWithoutDependencies: Layer.Layer<
   LayoutService,
   never,
   HerdrTransport
 > = Layer.effect(LayoutService, makeLayoutService);
 
-/** Production layout-service Layer using the ambient Herdr transport graph. */
+/**
+ * Production layout-service Layer using the ambient Herdr transport graph.
+ *
+ * @category layers
+ * @since 0.8.2
+ */
 export const layoutServiceLayer = layoutServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );

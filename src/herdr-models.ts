@@ -1,3 +1,10 @@
+/**
+ * Defines public Herdr resource, input, result, event, and graphics schemas.
+ *
+ * Each schema owns runtime decoding and its corresponding TypeScript model so protocol data becomes normalized domain values at SDK boundaries.
+ *
+ * @since 0.8.2
+ */
 import { Effect, Option, Schema, SchemaGetter } from "effect";
 import {
   AgentName,
@@ -27,25 +34,60 @@ import {
 const optionalString = Schema.OptionFromOptionalNullOr(Schema.String);
 const optionalAbsolutePath = Schema.OptionFromOptionalNullOr(HerdrAbsolutePath);
 
-/** Agent lifecycle status reported by Herdr resources. */
+/**
+ * Agent lifecycle status reported by Herdr resources.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentStatus = Schema.Literals(["idle", "working", "blocked", "done", "unknown"]);
 
-/** Agent lifecycle status reported by Herdr resources. */
+/**
+ * Agent lifecycle status reported by Herdr resources.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentStatus = typeof AgentStatus.Type;
 
-/** Agent state accepted by pane reporting operations. */
+/**
+ * Agent state accepted by pane reporting operations.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const ReportedAgentState = Schema.Literals(["idle", "working", "blocked", "unknown"]);
 
-/** Agent state accepted by pane reporting operations. */
+/**
+ * Agent state accepted by pane reporting operations.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type ReportedAgentState = typeof ReportedAgentState.Type;
 
-/** How an agent session reference identifies the upstream session. */
+/**
+ * How an agent session reference identifies the upstream session.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentSessionReferenceKind = Schema.Literals(["id", "path"]);
 
-/** How an agent session reference identifies the upstream session. */
+/**
+ * How an agent session reference identifies the upstream session.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentSessionReferenceKind = typeof AgentSessionReferenceKind.Type;
 
-/** Stable reference to an upstream agent session. */
+/**
+ * Stable reference to an upstream agent session.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentSessionReference = Schema.Struct({
   source: Schema.String,
   agent: Schema.String,
@@ -53,10 +95,20 @@ export const AgentSessionReference = Schema.Struct({
   value: Schema.String,
 });
 
-/** Stable reference to an upstream agent session. */
+/**
+ * Stable reference to an upstream agent session.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentSessionReference extends Schema.Schema.Type<typeof AgentSessionReference> {}
 
-/** Optional server capabilities reported by the compatibility handshake. */
+/**
+ * Optional server capabilities reported by the compatibility handshake.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const ServerCapabilities = Schema.Struct({
   liveHandoff: Schema.Boolean,
   detachedServerDaemon: Schema.optionalKey(Schema.Boolean).pipe(
@@ -69,29 +121,59 @@ export const ServerCapabilities = Schema.Struct({
   }),
 );
 
-/** Optional server capabilities reported by the compatibility handshake. */
+/**
+ * Optional server capabilities reported by the compatibility handshake.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface ServerCapabilities extends Schema.Schema.Type<typeof ServerCapabilities> {}
 
-/** Successful Herdr compatibility handshake. */
+/**
+ * Successful Herdr compatibility handshake.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PingResult = Schema.Struct({
   version: Schema.String,
   protocol: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   capabilities: Schema.OptionFromOptionalNullOr(ServerCapabilities),
 });
 
-/** Successful Herdr compatibility handshake. */
+/**
+ * Successful Herdr compatibility handshake.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PingResult extends Schema.Schema.Type<typeof PingResult> {}
 
-/** Server configuration reload status and diagnostics. */
+/**
+ * Server configuration reload status and diagnostics.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const ConfigReloadResult = Schema.Struct({
   status: Schema.Literals(["applied", "partial", "failed"]),
   diagnostics: Schema.Array(Schema.String),
 });
 
-/** Server configuration reload status and diagnostics. */
+/**
+ * Server configuration reload status and diagnostics.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface ConfigReloadResult extends Schema.Schema.Type<typeof ConfigReloadResult> {}
 
-/** One discovered agent manifest and its update state. */
+/**
+ * One discovered agent manifest and its update state.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentManifest = Schema.Struct({
   agent: Schema.String,
   source: Schema.String,
@@ -115,10 +197,20 @@ export const AgentManifest = Schema.Struct({
   }),
 );
 
-/** One discovered agent manifest and its update state. */
+/**
+ * One discovered agent manifest and its update state.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentManifest extends Schema.Schema.Type<typeof AgentManifest> {}
 
-/** Current agent-manifest cache and refresh state. */
+/**
+ * Current agent-manifest cache and refresh state.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentManifestStatus = Schema.Struct({
   lastCheckUnix: Schema.OptionFromOptionalNullOr(HerdrUnixSeconds),
   lastResult: optionalString,
@@ -130,30 +222,60 @@ export const AgentManifestStatus = Schema.Struct({
   }),
 );
 
-/** Current agent-manifest cache and refresh state. */
+/**
+ * Current agent-manifest cache and refresh state.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentManifestStatus extends Schema.Schema.Type<typeof AgentManifestStatus> {}
 
-/** Result of showing a foreground notification. */
+/**
+ * Result of showing a foreground notification.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const NotificationShowResult = Schema.Struct({
   shown: Schema.Boolean,
   reason: Schema.Literals(["shown", "disabled", "rate_limited", "no_foreground_client", "busy"]),
 });
 
-/** Result of showing a foreground notification. */
+/**
+ * Result of showing a foreground notification.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface NotificationShowResult extends Schema.Schema.Type<typeof NotificationShowResult> {}
 
-/** Result of changing the foreground client's window title. */
+/**
+ * Result of changing the foreground client's window title.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const ClientWindowTitleResult = Schema.Struct({
   changed: Schema.Boolean,
   reason: Schema.Literals(["set", "cleared", "no_foreground_client"]),
 });
 
-/** Result of changing the foreground client's window title. */
+/**
+ * Result of changing the foreground client's window title.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface ClientWindowTitleResult extends Schema.Schema.Type<
   typeof ClientWindowTitleResult
 > {}
 
-/** Worktree information attached to an open workspace. */
+/**
+ * Worktree information attached to an open workspace.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorkspaceWorktree = Schema.Struct({
   repoKey: Schema.String,
   repoName: Schema.String,
@@ -170,10 +292,20 @@ export const WorkspaceWorktree = Schema.Struct({
   }),
 );
 
-/** Worktree information attached to an open workspace. */
+/**
+ * Worktree information attached to an open workspace.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceWorktree extends Schema.Schema.Type<typeof WorkspaceWorktree> {}
 
-/** Herdr workspace normalized from the private wire representation. */
+/**
+ * Herdr workspace normalized from the private wire representation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const Workspace = Schema.Struct({
   id: WorkspaceId,
   number: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
@@ -197,10 +329,20 @@ export const Workspace = Schema.Struct({
   }),
 );
 
-/** Herdr workspace normalized from the private wire representation. */
+/**
+ * Herdr workspace normalized from the private wire representation.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface Workspace extends Schema.Schema.Type<typeof Workspace> {}
 
-/** Herdr tab normalized from the private wire representation. */
+/**
+ * Herdr tab normalized from the private wire representation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const Tab = Schema.Struct({
   id: TabId,
   workspaceId: WorkspaceId,
@@ -218,10 +360,20 @@ export const Tab = Schema.Struct({
   }),
 );
 
-/** Herdr tab normalized from the private wire representation. */
+/**
+ * Herdr tab normalized from the private wire representation.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface Tab extends Schema.Schema.Type<typeof Tab> {}
 
-/** Scroll position attached to a pane snapshot. */
+/**
+ * Scroll position attached to a pane snapshot.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneScroll = Schema.Struct({
   offsetFromBottom: Schema.Finite,
   maxOffsetFromBottom: Schema.Finite,
@@ -234,10 +386,20 @@ export const PaneScroll = Schema.Struct({
   }),
 );
 
-/** Scroll position attached to a pane snapshot. */
+/**
+ * Scroll position attached to a pane snapshot.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneScroll extends Schema.Schema.Type<typeof PaneScroll> {}
 
-/** Herdr pane normalized from the private wire representation. */
+/**
+ * Herdr pane normalized from the private wire representation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const Pane = Schema.Struct({
   id: PaneId,
   terminalId: TerminalId,
@@ -278,10 +440,20 @@ export const Pane = Schema.Struct({
   }),
 );
 
-/** Herdr pane normalized from the private wire representation. */
+/**
+ * Herdr pane normalized from the private wire representation.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface Pane extends Schema.Schema.Type<typeof Pane> {}
 
-/** Herdr agent normalized from the private wire representation. */
+/**
+ * Herdr agent normalized from the private wire representation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const Agent = Schema.Struct({
   terminalId: TerminalId,
   name: Schema.OptionFromOptionalNullOr(AgentName),
@@ -339,10 +511,20 @@ export const Agent = Schema.Struct({
   }),
 );
 
-/** Herdr agent normalized from the private wire representation. */
+/**
+ * Herdr agent normalized from the private wire representation.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface Agent extends Schema.Schema.Type<typeof Agent> {}
 
-/** Input accepted when creating a workspace. */
+/**
+ * Input accepted when creating a workspace.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorkspaceCreateInput = Schema.Struct({
   cwd: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
   focus: Schema.OptionFromOptionalKey(Schema.Boolean),
@@ -350,25 +532,50 @@ export const WorkspaceCreateInput = Schema.Struct({
   env: Schema.OptionFromOptionalKey(HerdrEnvironment),
 });
 
-/** Normalized input accepted when creating a workspace. */
+/**
+ * Normalized input accepted when creating a workspace.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceCreateInput extends Schema.Schema.Type<typeof WorkspaceCreateInput> {}
 
-/** Ergonomic external representation accepted by workspace creation. */
+/**
+ * Ergonomic external representation accepted by workspace creation.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceCreateInputEncoded extends Schema.Codec.Encoded<
   typeof WorkspaceCreateInput
 > {}
 
-/** Workspace, initial tab, and root pane created atomically by Herdr. */
+/**
+ * Workspace, initial tab, and root pane created atomically by Herdr.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorkspaceCreateResult = Schema.Struct({
   workspace: Workspace,
   tab: Tab,
   rootPane: Pane,
 }).pipe(Schema.encodeKeys({ rootPane: "root_pane" }));
 
-/** Workspace, initial tab, and root pane created atomically by Herdr. */
+/**
+ * Workspace, initial tab, and root pane created atomically by Herdr.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceCreateResult extends Schema.Schema.Type<typeof WorkspaceCreateResult> {}
 
-/** Metadata patch reported for a workspace. */
+/**
+ * Metadata patch reported for a workspace.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorkspaceMetadataReportInput = Schema.Struct({
   source: Schema.String,
   tokens: HerdrMetadataTokenPatch,
@@ -376,45 +583,90 @@ export const WorkspaceMetadataReportInput = Schema.Struct({
   ttlMs: Schema.OptionFromOptionalKey(HerdrMetadataTtl),
 });
 
-/** Normalized workspace metadata patch. */
+/**
+ * Normalized workspace metadata patch.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceMetadataReportInput extends Schema.Schema.Type<
   typeof WorkspaceMetadataReportInput
 > {}
 
-/** Ergonomic external workspace metadata patch. */
+/**
+ * Ergonomic external workspace metadata patch.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceMetadataReportInputEncoded extends Schema.Codec.Encoded<
   typeof WorkspaceMetadataReportInput
 > {}
 
-/** Ordered destination for moving one workspace. */
+/**
+ * Ordered destination for moving one workspace.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorkspaceMoveInput = Schema.Struct({
   insertIndex: HerdrInsertIndex,
 });
 
-/** Ordered destination for moving one workspace. */
+/**
+ * Ordered destination for moving one workspace.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceMoveInput extends Schema.Schema.Type<typeof WorkspaceMoveInput> {}
 
-/** External ordered destination accepted by workspace movement. */
+/**
+ * External ordered destination accepted by workspace movement.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceMoveInputEncoded extends Schema.Codec.Encoded<
   typeof WorkspaceMoveInput
 > {}
 
-/** Optional anchor used when moving a contiguous workspace block. */
+/**
+ * Optional anchor used when moving a contiguous workspace block.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorkspaceMoveBlockInput = Schema.Struct({
   beforeWorkspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
 });
 
-/** Normalized workspace-block move anchor. */
+/**
+ * Normalized workspace-block move anchor.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceMoveBlockInput extends Schema.Schema.Type<
   typeof WorkspaceMoveBlockInput
 > {}
 
-/** External workspace-block move anchor. */
+/**
+ * External workspace-block move anchor.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorkspaceMoveBlockInputEncoded extends Schema.Codec.Encoded<
   typeof WorkspaceMoveBlockInput
 > {}
 
-/** Optional compatibility expectations for a live server handoff. */
+/**
+ * Optional compatibility expectations for a live server handoff.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const ServerLiveHandoffInput = Schema.Struct({
   importExe: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
   expectedProtocol: Schema.OptionFromOptionalKey(
@@ -423,15 +675,30 @@ export const ServerLiveHandoffInput = Schema.Struct({
   expectedVersion: Schema.OptionFromOptionalKey(Schema.String),
 });
 
-/** Normalized live-handoff expectations. */
+/**
+ * Normalized live-handoff expectations.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface ServerLiveHandoffInput extends Schema.Schema.Type<typeof ServerLiveHandoffInput> {}
 
-/** Ergonomic live-handoff expectations accepted by the server service. */
+/**
+ * Ergonomic live-handoff expectations accepted by the server service.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface ServerLiveHandoffInputEncoded extends Schema.Codec.Encoded<
   typeof ServerLiveHandoffInput
 > {}
 
-/** Foreground notification request. */
+/**
+ * Foreground notification request.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const NotificationShowInput = Schema.Struct({
   title: Schema.String,
   body: Schema.OptionFromOptionalKey(Schema.String),
@@ -441,15 +708,30 @@ export const NotificationShowInput = Schema.Struct({
   sound: Schema.OptionFromOptionalKey(Schema.Literals(["none", "done", "request"])),
 });
 
-/** Normalized foreground notification request. */
+/**
+ * Normalized foreground notification request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface NotificationShowInput extends Schema.Schema.Type<typeof NotificationShowInput> {}
 
-/** Ergonomic foreground notification request. */
+/**
+ * Ergonomic foreground notification request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface NotificationShowInputEncoded extends Schema.Codec.Encoded<
   typeof NotificationShowInput
 > {}
 
-/** Built-in terminal-agent integration managed by Herdr. */
+/**
+ * Built-in terminal-agent integration managed by Herdr.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const IntegrationTarget = Schema.Literals([
   "pi",
   "omp",
@@ -470,21 +752,41 @@ export const IntegrationTarget = Schema.Literals([
   "antigravity_cli",
 ]);
 
-/** Built-in terminal-agent integration managed by Herdr. */
+/**
+ * Built-in terminal-agent integration managed by Herdr.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type IntegrationTarget = typeof IntegrationTarget.Type;
 
-/** Result of installing or uninstalling a built-in integration. */
+/**
+ * Result of installing or uninstalling a built-in integration.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const IntegrationChangeResult = Schema.Struct({
   target: IntegrationTarget,
   messages: Schema.Array(Schema.String),
 });
 
-/** Result of installing or uninstalling a built-in integration. */
+/**
+ * Result of installing or uninstalling a built-in integration.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface IntegrationChangeResult extends Schema.Schema.Type<
   typeof IntegrationChangeResult
 > {}
 
-/** Source repository resolved for worktree operations. */
+/**
+ * Source repository resolved for worktree operations.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeSourceInfo = Schema.Struct({
   repoKey: Schema.String,
   repoName: Schema.String,
@@ -501,10 +803,20 @@ export const WorktreeSourceInfo = Schema.Struct({
   }),
 );
 
-/** Source repository resolved for worktree operations. */
+/**
+ * Source repository resolved for worktree operations.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeSourceInfo extends Schema.Schema.Type<typeof WorktreeSourceInfo> {}
 
-/** Git worktree discovered by Herdr. */
+/**
+ * Git worktree discovered by Herdr.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const Worktree = Schema.Struct({
   path: HerdrAbsolutePath,
   branch: optionalString,
@@ -524,19 +836,39 @@ export const Worktree = Schema.Struct({
   }),
 );
 
-/** Git worktree discovered by Herdr. */
+/**
+ * Git worktree discovered by Herdr.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface Worktree extends Schema.Schema.Type<typeof Worktree> {}
 
-/** Resolved source and worktrees returned by listing. */
+/**
+ * Resolved source and worktrees returned by listing.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeListResult = Schema.Struct({
   source: WorktreeSourceInfo,
   worktrees: Schema.Array(Worktree),
 });
 
-/** Resolved source and worktrees returned by listing. */
+/**
+ * Resolved source and worktrees returned by listing.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeListResult extends Schema.Schema.Type<typeof WorktreeListResult> {}
 
-/** Worktree created together with its initial workspace resources. */
+/**
+ * Worktree created together with its initial workspace resources.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeCreateResult = Schema.Struct({
   worktree: Worktree,
   workspace: Workspace,
@@ -544,10 +876,20 @@ export const WorktreeCreateResult = Schema.Struct({
   rootPane: Pane,
 }).pipe(Schema.encodeKeys({ rootPane: "root_pane" }));
 
-/** Worktree created together with its initial workspace resources. */
+/**
+ * Worktree created together with its initial workspace resources.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeCreateResult extends Schema.Schema.Type<typeof WorktreeCreateResult> {}
 
-/** Worktree opened together with its initial workspace resources. */
+/**
+ * Worktree opened together with its initial workspace resources.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeOpenResult = Schema.Struct({
   worktree: Worktree,
   workspace: Workspace,
@@ -561,17 +903,32 @@ export const WorktreeOpenResult = Schema.Struct({
   }),
 );
 
-/** Worktree opened together with its initial workspace resources. */
+/**
+ * Worktree opened together with its initial workspace resources.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeOpenResult extends Schema.Schema.Type<typeof WorktreeOpenResult> {}
 
-/** Worktree removal outcome. */
+/**
+ * Worktree removal outcome.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeRemoveResult = Schema.Struct({
   workspaceId: WorkspaceId,
   path: HerdrAbsolutePath,
   forced: Schema.Boolean,
 }).pipe(Schema.encodeKeys({ workspaceId: "workspace_id" }));
 
-/** Worktree removal outcome. */
+/**
+ * Worktree removal outcome.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeRemoveResult extends Schema.Schema.Type<typeof WorktreeRemoveResult> {}
 
 const WorktreeSourceInputFields = {
@@ -580,7 +937,12 @@ const WorktreeSourceInputFields = {
   trustRepository: Schema.OptionFromOptionalKey(Schema.Boolean),
 };
 
-/** Optional workspace or directory selecting a repository for worktree listing. */
+/**
+ * Optional workspace or directory selecting a repository for worktree listing.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeListInput = Schema.Struct(WorktreeSourceInputFields).check(
   Schema.makeFilter((value) =>
     Option.isSome(value.workspaceId) && Option.isSome(value.cwd)
@@ -589,13 +951,28 @@ export const WorktreeListInput = Schema.Struct(WorktreeSourceInputFields).check(
   ),
 );
 
-/** Normalized worktree-list source selection. */
+/**
+ * Normalized worktree-list source selection.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeListInput extends Schema.Schema.Type<typeof WorktreeListInput> {}
 
-/** Ergonomic worktree-list source selection. */
+/**
+ * Ergonomic worktree-list source selection.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeListInputEncoded extends Schema.Codec.Encoded<typeof WorktreeListInput> {}
 
-/** Parameters accepted when creating a worktree and workspace. */
+/**
+ * Parameters accepted when creating a worktree and workspace.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeCreateInput = Schema.Struct({
   ...WorktreeSourceInputFields,
   branch: Schema.OptionFromOptionalKey(Schema.String),
@@ -611,15 +988,30 @@ export const WorktreeCreateInput = Schema.Struct({
   ),
 );
 
-/** Normalized worktree-creation parameters. */
+/**
+ * Normalized worktree-creation parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeCreateInput extends Schema.Schema.Type<typeof WorktreeCreateInput> {}
 
-/** Ergonomic worktree-creation parameters. */
+/**
+ * Ergonomic worktree-creation parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeCreateInputEncoded extends Schema.Codec.Encoded<
   typeof WorktreeCreateInput
 > {}
 
-/** Parameters accepted when opening an existing worktree. */
+/**
+ * Parameters accepted when opening an existing worktree.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeOpenInput = Schema.Struct({
   ...WorktreeSourceInputFields,
   path: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
@@ -637,27 +1029,57 @@ export const WorktreeOpenInput = Schema.Struct({
   }),
 );
 
-/** Normalized worktree-open parameters. */
+/**
+ * Normalized worktree-open parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeOpenInput extends Schema.Schema.Type<typeof WorktreeOpenInput> {}
 
-/** Ergonomic worktree-open parameters. */
+/**
+ * Ergonomic worktree-open parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeOpenInputEncoded extends Schema.Codec.Encoded<typeof WorktreeOpenInput> {}
 
-/** Optional force flag for worktree removal. */
+/**
+ * Optional force flag for worktree removal.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const WorktreeRemoveInput = Schema.Struct({
   force: Schema.OptionFromOptionalKey(Schema.Boolean),
   trustRepository: Schema.OptionFromOptionalKey(Schema.Boolean),
 });
 
-/** Normalized worktree-removal input. */
+/**
+ * Normalized worktree-removal input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeRemoveInput extends Schema.Schema.Type<typeof WorktreeRemoveInput> {}
 
-/** Ergonomic worktree-removal input. */
+/**
+ * Ergonomic worktree-removal input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface WorktreeRemoveInputEncoded extends Schema.Codec.Encoded<
   typeof WorktreeRemoveInput
 > {}
 
-/** Input accepted when creating a tab and root pane. */
+/**
+ * Input accepted when creating a tab and root pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const TabCreateInput = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
   cwd: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
@@ -666,56 +1088,131 @@ export const TabCreateInput = Schema.Struct({
   env: Schema.OptionFromOptionalKey(HerdrEnvironment),
 });
 
-/** Normalized input accepted when creating a tab. */
+/**
+ * Normalized input accepted when creating a tab.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface TabCreateInput extends Schema.Schema.Type<typeof TabCreateInput> {}
 
-/** Ergonomic input accepted when creating a tab. */
+/**
+ * Ergonomic input accepted when creating a tab.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface TabCreateInputEncoded extends Schema.Codec.Encoded<typeof TabCreateInput> {}
 
-/** Tab and root pane created together. */
+/**
+ * Tab and root pane created together.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const TabCreateResult = Schema.Struct({
   tab: Tab,
   rootPane: Pane,
 }).pipe(Schema.encodeKeys({ rootPane: "root_pane" }));
 
-/** Tab and root pane created together. */
+/**
+ * Tab and root pane created together.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface TabCreateResult extends Schema.Schema.Type<typeof TabCreateResult> {}
 
-/** Optional workspace filter for tab listing. */
+/**
+ * Optional workspace filter for tab listing.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const TabListInput = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
 });
 
-/** Normalized tab-list filter. */
+/**
+ * Normalized tab-list filter.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface TabListInput extends Schema.Schema.Type<typeof TabListInput> {}
 
-/** Ergonomic tab-list filter. */
+/**
+ * Ergonomic tab-list filter.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface TabListInputEncoded extends Schema.Codec.Encoded<typeof TabListInput> {}
 
-/** Ordered destination for moving one tab. */
+/**
+ * Ordered destination for moving one tab.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const TabMoveInput = Schema.Struct({
   insertIndex: HerdrInsertIndex,
 });
 
-/** Ordered destination for moving one tab. */
+/**
+ * Ordered destination for moving one tab.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface TabMoveInput extends Schema.Schema.Type<typeof TabMoveInput> {}
 
-/** External ordered destination accepted by tab movement. */
+/**
+ * External ordered destination accepted by tab movement.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface TabMoveInputEncoded extends Schema.Codec.Encoded<typeof TabMoveInput> {}
 
-/** Cardinal pane direction. */
+/**
+ * Cardinal pane direction.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneDirection = Schema.Literals(["left", "right", "up", "down"]);
 
-/** Cardinal pane direction. */
+/**
+ * Cardinal pane direction.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneDirection = typeof PaneDirection.Type;
 
-/** Direction accepted when constructing a binary split. */
+/**
+ * Direction accepted when constructing a binary split.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const SplitDirection = Schema.Literals(["right", "down"]);
 
-/** Direction accepted when constructing a binary split. */
+/**
+ * Direction accepted when constructing a binary split.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type SplitDirection = typeof SplitDirection.Type;
 
-/** Pane-output source selected for reading or waiting. */
+/**
+ * Pane-output source selected for reading or waiting.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneReadSource = Schema.Literals([
   "visible",
   "recent",
@@ -723,16 +1220,36 @@ export const PaneReadSource = Schema.Literals([
   "detection",
 ]);
 
-/** Pane-output source selected for reading or waiting. */
+/**
+ * Pane-output source selected for reading or waiting.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneReadSource = typeof PaneReadSource.Type;
 
-/** Pane-output representation returned by a read. */
+/**
+ * Pane-output representation returned by a read.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneReadFormat = Schema.Literals(["text", "ansi"]);
 
-/** Pane-output representation returned by a read. */
+/**
+ * Pane-output representation returned by a read.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneReadFormat = typeof PaneReadFormat.Type;
 
-/** Rectangle in terminal-cell layout coordinates. */
+/**
+ * Rectangle in terminal-cell layout coordinates.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneLayoutRect = Schema.Struct({
   x: Schema.Finite,
   y: Schema.Finite,
@@ -740,10 +1257,20 @@ export const PaneLayoutRect = Schema.Struct({
   height: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
 });
 
-/** Rectangle in terminal-cell layout coordinates. */
+/**
+ * Rectangle in terminal-cell layout coordinates.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneLayoutRect extends Schema.Schema.Type<typeof PaneLayoutRect> {}
 
-/** Pane layout snapshot returned by geometry operations. */
+/**
+ * Pane layout snapshot returned by geometry operations.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneLayoutSnapshot = Schema.Struct({
   workspaceId: WorkspaceId,
   tabId: TabId,
@@ -773,10 +1300,20 @@ export const PaneLayoutSnapshot = Schema.Struct({
   }),
 );
 
-/** Pane layout snapshot returned by geometry operations. */
+/**
+ * Pane layout snapshot returned by geometry operations.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneLayoutSnapshot extends Schema.Schema.Type<typeof PaneLayoutSnapshot> {}
 
-/** Pane output read result. */
+/**
+ * Pane output read result.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneReadResult = Schema.Struct({
   paneId: PaneId,
   workspaceId: WorkspaceId,
@@ -794,10 +1331,20 @@ export const PaneReadResult = Schema.Struct({
   }),
 );
 
-/** Pane output read result. */
+/**
+ * Pane output read result.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneReadResult extends Schema.Schema.Type<typeof PaneReadResult> {}
 
-/** Pane output wait result and the read that contained the match. */
+/**
+ * Pane output wait result and the read that contained the match.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneOutputMatchResult = Schema.Struct({
   paneId: PaneId,
   revision: HerdrRevision,
@@ -810,10 +1357,20 @@ export const PaneOutputMatchResult = Schema.Struct({
   }),
 );
 
-/** Pane output wait result and the read that contained the match. */
+/**
+ * Pane output wait result and the read that contained the match.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneOutputMatchResult extends Schema.Schema.Type<typeof PaneOutputMatchResult> {}
 
-/** Result of swapping two panes. */
+/**
+ * Result of swapping two panes.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneSwapResult = Schema.Struct({
   changed: Schema.Boolean,
   reason: Schema.OptionFromOptionalNullOr(
@@ -831,10 +1388,20 @@ export const PaneSwapResult = Schema.Struct({
   }),
 );
 
-/** Result of swapping two panes. */
+/**
+ * Result of swapping two panes.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneSwapResult extends Schema.Schema.Type<typeof PaneSwapResult> {}
 
-/** Result of moving a pane between tabs or workspaces. */
+/**
+ * Result of moving a pane between tabs or workspaces.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneMoveResult = Schema.Struct({
   changed: Schema.Boolean,
   reason: Schema.OptionFromOptionalNullOr(Schema.Literals(["same_tab", "zoomed_tab"])),
@@ -864,10 +1431,20 @@ export const PaneMoveResult = Schema.Struct({
   }),
 );
 
-/** Result of moving a pane between tabs or workspaces. */
+/**
+ * Result of moving a pane between tabs or workspaces.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneMoveResult extends Schema.Schema.Type<typeof PaneMoveResult> {}
 
-/** Result of changing pane zoom or focus state. */
+/**
+ * Result of changing pane zoom or focus state.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneZoomResult = Schema.Struct({
   changed: Schema.Boolean,
   zoomChanged: Schema.Boolean,
@@ -888,10 +1465,20 @@ export const PaneZoomResult = Schema.Struct({
   }),
 );
 
-/** Result of changing pane zoom or focus state. */
+/**
+ * Result of changing pane zoom or focus state.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneZoomResult extends Schema.Schema.Type<typeof PaneZoomResult> {}
 
-/** Foreground process reported for a pane. */
+/**
+ * Foreground process reported for a pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneProcess = Schema.Struct({
   pid: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   name: Schema.String,
@@ -901,10 +1488,20 @@ export const PaneProcess = Schema.Struct({
   cwd: optionalAbsolutePath,
 });
 
-/** Foreground process reported for a pane. */
+/**
+ * Foreground process reported for a pane.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneProcess extends Schema.Schema.Type<typeof PaneProcess> {}
 
-/** Operating-system process information for one pane. */
+/**
+ * Operating-system process information for one pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneProcessInfo = Schema.Struct({
   paneId: PaneId,
   shellPid: Schema.OptionFromOptionalNullOr(
@@ -926,10 +1523,20 @@ export const PaneProcessInfo = Schema.Struct({
   }),
 );
 
-/** Operating-system process information for one pane. */
+/**
+ * Operating-system process information for one pane.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneProcessInfo extends Schema.Schema.Type<typeof PaneProcessInfo> {}
 
-/** Neighbor lookup result for one pane and direction. */
+/**
+ * Neighbor lookup result for one pane and direction.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneNeighborResult = Schema.Struct({
   paneId: PaneId,
   direction: PaneDirection,
@@ -942,10 +1549,20 @@ export const PaneNeighborResult = Schema.Struct({
   }),
 );
 
-/** Neighbor lookup result for one pane and direction. */
+/**
+ * Neighbor lookup result for one pane and direction.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneNeighborResult extends Schema.Schema.Type<typeof PaneNeighborResult> {}
 
-/** Edge membership result for one pane. */
+/**
+ * Edge membership result for one pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneEdgesResult = Schema.Struct({
   paneId: PaneId,
   left: Schema.Boolean,
@@ -955,10 +1572,20 @@ export const PaneEdgesResult = Schema.Struct({
   layout: PaneLayoutSnapshot,
 }).pipe(Schema.encodeKeys({ paneId: "pane_id" }));
 
-/** Edge membership result for one pane. */
+/**
+ * Edge membership result for one pane.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneEdgesResult extends Schema.Schema.Type<typeof PaneEdgesResult> {}
 
-/** Directional focus outcome. */
+/**
+ * Directional focus outcome.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneFocusDirectionResult = Schema.Struct({
   changed: Schema.Boolean,
   reason: Schema.OptionFromOptionalNullOr(Schema.Literal("no_neighbor")),
@@ -972,12 +1599,22 @@ export const PaneFocusDirectionResult = Schema.Struct({
   }),
 );
 
-/** Directional focus outcome. */
+/**
+ * Directional focus outcome.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneFocusDirectionResult extends Schema.Schema.Type<
   typeof PaneFocusDirectionResult
 > {}
 
-/** Pane resize outcome. */
+/**
+ * Pane resize outcome.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneResizeResult = Schema.Struct({
   changed: Schema.Boolean,
   reason: Schema.OptionFromOptionalNullOr(Schema.Literal("unchanged")),
@@ -991,16 +1628,36 @@ export const PaneResizeResult = Schema.Struct({
   }),
 );
 
-/** Pane resize outcome. */
+/**
+ * Pane resize outcome.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneResizeResult extends Schema.Schema.Type<typeof PaneResizeResult> {}
 
-/** Direct-file pixel formats advertised and accepted by Herdr graphics streams. */
+/**
+ * Direct-file pixel formats advertised and accepted by Herdr graphics streams.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsFileFormat = Schema.Literals(["rgba", "bgra"]);
 
-/** Direct-file pixel formats advertised and accepted by Herdr graphics streams. */
+/**
+ * Direct-file pixel formats advertised and accepted by Herdr graphics streams.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneGraphicsFileFormat = typeof PaneGraphicsFileFormat.Type;
 
-/** Pane graphics rendering and file-frame capabilities. */
+/**
+ * Pane graphics rendering and file-frame capabilities.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsInfo = Schema.Struct({
   cellWidthPx: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
   cellHeightPx: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -1041,29 +1698,64 @@ export const PaneGraphicsInfo = Schema.Struct({
   }),
 );
 
-/** Pane graphics rendering and file-frame capabilities. */
+/**
+ * Pane graphics rendering and file-frame capabilities.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsInfo extends Schema.Schema.Type<typeof PaneGraphicsInfo> {}
 
-/** Destination for right-click input handled by a pane. */
+/**
+ * Destination for right-click input handled by a pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneRightClickTarget = Schema.Literals(["herdr", "pane"]);
 
-/** Destination for right-click input handled by a pane. */
+/**
+ * Destination for right-click input handled by a pane.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneRightClickTarget = typeof PaneRightClickTarget.Type;
 
-/** Pane input-routing update. */
+/**
+ * Pane input-routing update.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneInputRoutingInput = Schema.Struct({
   rightClick: PaneRightClickTarget,
 });
 
-/** Normalized pane input-routing update. */
+/**
+ * Normalized pane input-routing update.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneInputRoutingInput extends Schema.Schema.Type<typeof PaneInputRoutingInput> {}
 
-/** Ergonomic pane input-routing update. */
+/**
+ * Ergonomic pane input-routing update.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneInputRoutingInputEncoded extends Schema.Codec.Encoded<
   typeof PaneInputRoutingInput
 > {}
 
-/** Parameters for splitting a pane. */
+/**
+ * Parameters for splitting a pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneSplitInput = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
   direction: SplitDirection,
@@ -1074,13 +1766,28 @@ export const PaneSplitInput = Schema.Struct({
   rightClick: Schema.OptionFromOptionalKey(PaneRightClickTarget),
 });
 
-/** Normalized pane-split parameters. */
+/**
+ * Normalized pane-split parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneSplitInput extends Schema.Schema.Type<typeof PaneSplitInput> {}
 
-/** Ergonomic pane-split parameters. */
+/**
+ * Ergonomic pane-split parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneSplitInputEncoded extends Schema.Codec.Encoded<typeof PaneSplitInput> {}
 
-/** Parameters for swapping a pane with a neighbor or explicit pane. */
+/**
+ * Parameters for swapping a pane with a neighbor or explicit pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneSwapInput = Schema.Union([
   Schema.Struct({
     paneId: Schema.OptionFromOptionalKey(PaneId),
@@ -1092,13 +1799,28 @@ export const PaneSwapInput = Schema.Union([
   }),
 ]);
 
-/** Normalized pane-swap parameters. */
+/**
+ * Normalized pane-swap parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneSwapInput = typeof PaneSwapInput.Type;
 
-/** Ergonomic pane-swap parameters. */
+/**
+ * Ergonomic pane-swap parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneSwapInputEncoded = typeof PaneSwapInput.Encoded;
 
-/** Destination used when moving a pane. */
+/**
+ * Destination used when moving a pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneMoveDestination = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("tab"),
@@ -1119,49 +1841,109 @@ export const PaneMoveDestination = Schema.Union([
   }),
 ]);
 
-/** Destination used when moving a pane. */
+/**
+ * Destination used when moving a pane.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneMoveDestination = typeof PaneMoveDestination.Type;
 
-/** Pane move request. */
+/**
+ * Pane move request.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneMoveInput = Schema.Struct({
   destination: PaneMoveDestination,
   focus: Schema.OptionFromOptionalKey(Schema.Boolean),
 });
 
-/** Normalized pane move request. */
+/**
+ * Normalized pane move request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneMoveInput extends Schema.Schema.Type<typeof PaneMoveInput> {}
 
-/** Ergonomic pane move request. */
+/**
+ * Ergonomic pane move request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneMoveInputEncoded extends Schema.Codec.Encoded<typeof PaneMoveInput> {}
 
-/** Pane zoom mode. */
+/**
+ * Pane zoom mode.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneZoomMode = Schema.Literals(["toggle", "on", "off"]);
 
-/** Pane zoom mode. */
+/**
+ * Pane zoom mode.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneZoomMode = typeof PaneZoomMode.Type;
 
-/** Optional mode for a pane zoom operation. */
+/**
+ * Optional mode for a pane zoom operation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneZoomInput = Schema.Struct({
   mode: Schema.OptionFromOptionalKey(PaneZoomMode),
 });
 
-/** Normalized pane zoom input. */
+/**
+ * Normalized pane zoom input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneZoomInput extends Schema.Schema.Type<typeof PaneZoomInput> {}
 
-/** Ergonomic pane zoom input. */
+/**
+ * Ergonomic pane zoom input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneZoomInputEncoded extends Schema.Codec.Encoded<typeof PaneZoomInput> {}
 
-/** Optional pane origin for directional focus. */
+/**
+ * Optional pane origin for directional focus.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneFocusDirectionInput = Schema.Struct({
   paneId: Schema.OptionFromOptionalKey(PaneId),
 });
 
-/** Ergonomic directional-focus input. */
+/**
+ * Ergonomic directional-focus input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneFocusDirectionInputEncoded extends Schema.Codec.Encoded<
   typeof PaneFocusDirectionInput
 > {}
 
-/** Optional pane origin and cell amount for directional resize. */
+/**
+ * Optional pane origin and cell amount for directional resize.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneResizeInput = Schema.Struct({
   paneId: Schema.OptionFromOptionalKey(PaneId),
   amount: Schema.OptionFromOptionalKey(
@@ -1169,26 +1951,56 @@ export const PaneResizeInput = Schema.Struct({
   ),
 });
 
-/** Ergonomic directional-resize input. */
+/**
+ * Ergonomic directional-resize input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneResizeInputEncoded extends Schema.Codec.Encoded<typeof PaneResizeInput> {}
 
-/** Optional workspace selector for pane listing. */
+/**
+ * Optional workspace selector for pane listing.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneListInput = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
 });
 
-/** Ergonomic pane-list input. */
+/**
+ * Ergonomic pane-list input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneListInputEncoded extends Schema.Codec.Encoded<typeof PaneListInput> {}
 
-/** Optional caller identity used to resolve the current pane. */
+/**
+ * Optional caller identity used to resolve the current pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneCurrentInput = Schema.Struct({
   callerPaneId: Schema.OptionFromOptionalKey(PaneId),
 });
 
-/** Ergonomic current-pane input. */
+/**
+ * Ergonomic current-pane input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneCurrentInputEncoded extends Schema.Codec.Encoded<typeof PaneCurrentInput> {}
 
-/** Pane output read parameters. */
+/**
+ * Pane output read parameters.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneReadInput = Schema.Struct({
   source: PaneReadSource,
   lines: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt(), Schema.isGreaterThan(0))),
@@ -1196,13 +2008,28 @@ export const PaneReadInput = Schema.Struct({
   stripAnsi: Schema.OptionFromOptionalKey(Schema.Boolean),
 });
 
-/** Normalized pane output read parameters. */
+/**
+ * Normalized pane output read parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneReadInput extends Schema.Schema.Type<typeof PaneReadInput> {}
 
-/** Ergonomic pane output read parameters. */
+/**
+ * Ergonomic pane output read parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneReadInputEncoded extends Schema.Codec.Encoded<typeof PaneReadInput> {}
 
-/** Combined text and key input sent to one pane. */
+/**
+ * Combined text and key input sent to one pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneInput = Schema.Union([
   Schema.Struct({
     text: Schema.String,
@@ -1214,22 +2041,47 @@ export const PaneInput = Schema.Union([
   }),
 ]);
 
-/** Normalized combined pane input. */
+/**
+ * Normalized combined pane input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneInput = typeof PaneInput.Type;
 
-/** Ergonomic combined pane input. */
+/**
+ * Ergonomic combined pane input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneInputEncoded = typeof PaneInput.Encoded;
 
-/** Text or regular-expression output matcher. */
+/**
+ * Text or regular-expression output matcher.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneOutputMatch = Schema.Union([
   Schema.Struct({ type: Schema.Literal("substring"), value: Schema.String }),
   Schema.Struct({ type: Schema.Literal("regex"), value: Schema.String }),
 ]);
 
-/** Text or regular-expression output matcher. */
+/**
+ * Text or regular-expression output matcher.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneOutputMatch = typeof PaneOutputMatch.Type;
 
-/** Pane output wait parameters. */
+/**
+ * Pane output wait parameters.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneWaitForOutputInput = Schema.Struct({
   source: PaneReadSource,
   lines: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt(), Schema.isGreaterThan(0))),
@@ -1238,15 +2090,30 @@ export const PaneWaitForOutputInput = Schema.Struct({
   stripAnsi: Schema.OptionFromOptionalKey(Schema.Boolean),
 });
 
-/** Normalized pane output wait parameters. */
+/**
+ * Normalized pane output wait parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneWaitForOutputInput extends Schema.Schema.Type<typeof PaneWaitForOutputInput> {}
 
-/** Ergonomic pane output wait parameters. */
+/**
+ * Ergonomic pane output wait parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneWaitForOutputInputEncoded extends Schema.Codec.Encoded<
   typeof PaneWaitForOutputInput
 > {}
 
-/** Agent-state report attached to one pane. */
+/**
+ * Agent-state report attached to one pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneAgentReportInput = Schema.Struct({
   source: Schema.String,
   agent: Schema.String,
@@ -1263,15 +2130,30 @@ export const PaneAgentReportInput = Schema.Struct({
   ),
 );
 
-/** Normalized agent-state report. */
+/**
+ * Normalized agent-state report.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneAgentReportInput extends Schema.Schema.Type<typeof PaneAgentReportInput> {}
 
-/** Ergonomic agent-state report. */
+/**
+ * Ergonomic agent-state report.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneAgentReportInputEncoded extends Schema.Codec.Encoded<
   typeof PaneAgentReportInput
 > {}
 
-/** Agent-session report attached to one pane. */
+/**
+ * Agent-session report attached to one pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneAgentSessionReportInput = Schema.Struct({
   source: Schema.String,
   agent: Schema.String,
@@ -1287,17 +2169,32 @@ export const PaneAgentSessionReportInput = Schema.Struct({
   ),
 );
 
-/** Normalized agent-session report. */
+/**
+ * Normalized agent-session report.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneAgentSessionReportInput extends Schema.Schema.Type<
   typeof PaneAgentSessionReportInput
 > {}
 
-/** Ergonomic agent-session report. */
+/**
+ * Ergonomic agent-session report.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneAgentSessionReportInputEncoded extends Schema.Codec.Encoded<
   typeof PaneAgentSessionReportInput
 > {}
 
-/** Metadata patch reported for one pane. */
+/**
+ * Metadata patch reported for one pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneMetadataReportInput = Schema.Struct({
   source: Schema.String,
   agent: Schema.OptionFromOptionalKey(Schema.String),
@@ -1313,48 +2210,93 @@ export const PaneMetadataReportInput = Schema.Struct({
   ttlMs: Schema.OptionFromOptionalKey(HerdrMetadataTtl),
 });
 
-/** Normalized pane metadata patch. */
+/**
+ * Normalized pane metadata patch.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneMetadataReportInput extends Schema.Schema.Type<
   typeof PaneMetadataReportInput
 > {}
 
-/** Ergonomic pane metadata patch. */
+/**
+ * Ergonomic pane metadata patch.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneMetadataReportInputEncoded extends Schema.Codec.Encoded<
   typeof PaneMetadataReportInput
 > {}
 
-/** Optional authority version used when clearing an agent report. */
+/**
+ * Optional authority version used when clearing an agent report.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneClearAgentAuthorityInput = Schema.Struct({
   source: Schema.OptionFromOptionalKey(Schema.String),
   sequence: Schema.OptionFromOptionalKey(HerdrStateChangeSequence),
 });
 
-/** Normalized clear-agent-authority request. */
+/**
+ * Normalized clear-agent-authority request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneClearAgentAuthorityInput extends Schema.Schema.Type<
   typeof PaneClearAgentAuthorityInput
 > {}
 
-/** Ergonomic clear-agent-authority request. */
+/**
+ * Ergonomic clear-agent-authority request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneClearAgentAuthorityInputEncoded extends Schema.Codec.Encoded<
   typeof PaneClearAgentAuthorityInput
 > {}
 
-/** Authority release request for one pane agent. */
+/**
+ * Authority release request for one pane agent.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneReleaseAgentInput = Schema.Struct({
   source: Schema.String,
   agent: Schema.String,
   sequence: Schema.OptionFromOptionalKey(HerdrStateChangeSequence),
 });
 
-/** Normalized pane agent release request. */
+/**
+ * Normalized pane agent release request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneReleaseAgentInput extends Schema.Schema.Type<typeof PaneReleaseAgentInput> {}
 
-/** Ergonomic pane agent release request. */
+/**
+ * Ergonomic pane agent release request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneReleaseAgentInputEncoded extends Schema.Codec.Encoded<
   typeof PaneReleaseAgentInput
 > {}
 
-/** Placement coordinates for a pane graphics frame. */
+/**
+ * Placement coordinates for a pane graphics frame.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsPlacement = Schema.Struct({
   viewportCol: Schema.OptionFromOptionalKey(
     Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
@@ -1370,13 +2312,28 @@ export const PaneGraphicsPlacement = Schema.Struct({
   ),
 });
 
-/** Normalized placement coordinates for a pane graphics frame. */
+/**
+ * Normalized placement coordinates for a pane graphics frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsPlacement extends Schema.Schema.Type<typeof PaneGraphicsPlacement> {}
 
-/** Pane graphics pixel representation. */
+/**
+ * Pane graphics pixel representation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsFormat = Schema.Literals(["png", "rgb", "rgba", "bgra"]);
 
-/** Pane graphics pixel representation. */
+/**
+ * Pane graphics pixel representation.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PaneGraphicsFormat = typeof PaneGraphicsFormat.Type;
 
 const PaneGraphicsFrameFields = {
@@ -1387,52 +2344,107 @@ const PaneGraphicsFrameFields = {
   placement: Schema.OptionFromOptionalKey(PaneGraphicsPlacement),
 };
 
-/** Image frame accepted by a scoped pane graphics stream. */
+/**
+ * Image frame accepted by a scoped pane graphics stream.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsFrame = Schema.Struct(PaneGraphicsFrameFields);
 
-/** Normalized pane graphics image frame. */
+/**
+ * Normalized pane graphics image frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsFrame extends Schema.Schema.Type<typeof PaneGraphicsFrame> {}
 
-/** Ergonomic pane graphics image frame. */
+/**
+ * Ergonomic pane graphics image frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsFrameEncoded extends Schema.Codec.Encoded<typeof PaneGraphicsFrame> {}
 
-/** One-shot image frame with optional layer placement controls. */
+/**
+ * One-shot image frame with optional layer placement controls.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsSetFrame = Schema.Struct({
   ...PaneGraphicsFrameFields,
   layerId: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
   zIndex: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt())),
 });
 
-/** Normalized one-shot pane graphics frame. */
+/**
+ * Normalized one-shot pane graphics frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsSetFrame extends Schema.Schema.Type<typeof PaneGraphicsSetFrame> {}
 
-/** Ergonomic one-shot pane graphics frame. */
+/**
+ * Ergonomic one-shot pane graphics frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsSetFrameEncoded extends Schema.Codec.Encoded<
   typeof PaneGraphicsSetFrame
 > {}
 
-/** Optional layer selected by a graphics operation. */
+/**
+ * Optional layer selected by a graphics operation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsLayerInput = Schema.Struct({
   layerId: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
 });
 
-/** Ergonomic graphics-layer selection. */
+/**
+ * Ergonomic graphics-layer selection.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsLayerInputEncoded extends Schema.Codec.Encoded<
   typeof PaneGraphicsLayerInput
 > {}
 
-/** Layer and z-index selected for a scoped graphics stream. */
+/**
+ * Layer and z-index selected for a scoped graphics stream.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsStreamInput = Schema.Struct({
   layerId: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
   zIndex: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt())),
 });
 
-/** Ergonomic scoped graphics-stream selection. */
+/**
+ * Ergonomic scoped graphics-stream selection.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsStreamInputEncoded extends Schema.Codec.Encoded<
   typeof PaneGraphicsStreamInput
 > {}
 
-/** Immutable direct-file frame accepted by a scoped graphics stream. */
+/**
+ * Immutable direct-file frame accepted by a scoped graphics stream.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsFileFrame = Schema.Struct({
   format: PaneGraphicsFileFormat,
   imageWidth: HerdrImageDimension,
@@ -1443,21 +2455,41 @@ export const PaneGraphicsFileFrame = Schema.Struct({
   placement: Schema.OptionFromOptionalKey(PaneGraphicsPlacement),
 });
 
-/** Normalized direct-file pane graphics frame. */
+/**
+ * Normalized direct-file pane graphics frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsFileFrame extends Schema.Schema.Type<typeof PaneGraphicsFileFrame> {}
 
-/** Ergonomic direct-file pane graphics frame. */
+/**
+ * Ergonomic direct-file pane graphics frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsFileFrameEncoded extends Schema.Codec.Encoded<
   typeof PaneGraphicsFileFrame
 > {}
 
-/** Herdr acknowledgement for an accepted direct-file graphics frame. */
+/**
+ * Herdr acknowledgement for an accepted direct-file graphics frame.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PaneGraphicsFrameAcknowledgement = Schema.Struct({
   sequence: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   revision: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 });
 
-/** Herdr acknowledgement for an accepted direct-file graphics frame. */
+/**
+ * Herdr acknowledgement for an accepted direct-file graphics frame.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PaneGraphicsFrameAcknowledgement extends Schema.Schema.Type<
   typeof PaneGraphicsFrameAcknowledgement
 > {}
@@ -1519,7 +2551,12 @@ interface LayoutSplitNodeWireEncoded {
 
 type LayoutNodeWireEncoded = LayoutPaneNodeWireEncoded | LayoutSplitNodeWireEncoded;
 
-/** Recursive declarative pane or split layout node. */
+/**
+ * Recursive declarative pane or split layout node.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const LayoutNode: Schema.Codec<LayoutNodeValue, LayoutNodeInputEncoded> = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("pane"),
@@ -1560,22 +2597,47 @@ const LayoutWireNode: Schema.Codec<LayoutNodeValue, LayoutNodeWireEncoded> = Sch
   }),
 ]);
 
-/** Recursive declarative pane or split layout node. */
+/**
+ * Recursive declarative pane or split layout node.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type LayoutNode = typeof LayoutNode.Type;
 
-/** Tab or pane selecting a layout. */
+/**
+ * Tab or pane selecting a layout.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const LayoutTarget = Schema.Union([
   Schema.Struct({ tabId: TabId }),
   Schema.Struct({ paneId: PaneId }),
 ]);
 
-/** Tab or pane selecting a layout. */
+/**
+ * Tab or pane selecting a layout.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type LayoutTarget = typeof LayoutTarget.Type;
 
-/** Ergonomic tab or pane selecting a layout. */
+/**
+ * Ergonomic tab or pane selecting a layout.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type LayoutTargetEncoded = typeof LayoutTarget.Encoded;
 
-/** Declarative layout apply request. */
+/**
+ * Declarative layout apply request.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const LayoutApplyInput = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
   replaceTabId: Schema.OptionFromOptionalKey(TabId),
@@ -1584,29 +2646,59 @@ export const LayoutApplyInput = Schema.Struct({
   root: LayoutNode,
 });
 
-/** Normalized declarative layout apply request. */
+/**
+ * Normalized declarative layout apply request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface LayoutApplyInput extends Schema.Schema.Type<typeof LayoutApplyInput> {}
 
-/** Ergonomic declarative layout apply request. */
+/**
+ * Ergonomic declarative layout apply request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface LayoutApplyInputEncoded extends Schema.Codec.Encoded<typeof LayoutApplyInput> {}
 
-/** Split path and ratio used to resize a declarative layout node. */
+/**
+ * Split path and ratio used to resize a declarative layout node.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const LayoutSetSplitRatioInput = Schema.Struct({
   path: Schema.Array(Schema.Boolean),
   ratio: HerdrSplitRatio,
 });
 
-/** Normalized split-ratio update. */
+/**
+ * Normalized split-ratio update.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface LayoutSetSplitRatioInput extends Schema.Schema.Type<
   typeof LayoutSetSplitRatioInput
 > {}
 
-/** Ergonomic split-ratio update. */
+/**
+ * Ergonomic split-ratio update.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface LayoutSetSplitRatioInputEncoded extends Schema.Codec.Encoded<
   typeof LayoutSetSplitRatioInput
 > {}
 
-/** Exported or applied declarative layout. */
+/**
+ * Exported or applied declarative layout.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const LayoutDescription = Schema.Struct({
   workspaceId: WorkspaceId,
   tabId: TabId,
@@ -1621,14 +2713,24 @@ export const LayoutDescription = Schema.Struct({
   }),
 );
 
-/** Exported or applied declarative layout. */
+/**
+ * Exported or applied declarative layout.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface LayoutDescription extends Schema.Schema.Type<typeof LayoutDescription> {}
 
 interface HerdrJsonObjectValue {
   readonly [key: string]: HerdrJsonValue;
 }
 
-/** JSON value returned by currently schema-less Herdr protocol fields. */
+/**
+ * JSON value returned by currently schema-less Herdr protocol fields.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type HerdrJsonValue =
   | string
   | number
@@ -1637,7 +2739,12 @@ export type HerdrJsonValue =
   | readonly HerdrJsonValue[]
   | HerdrJsonObjectValue;
 
-/** JSON value returned by currently schema-less Herdr protocol fields. */
+/**
+ * JSON value returned by currently schema-less Herdr protocol fields.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const HerdrJsonValue: Schema.Codec<HerdrJsonValue> = Schema.Union([
   Schema.String,
   Schema.Number,
@@ -1650,19 +2757,39 @@ export const HerdrJsonValue: Schema.Codec<HerdrJsonValue> = Schema.Union([
   ),
 ]);
 
-/** Pane identifier or assigned name selecting one agent. */
+/**
+ * Pane identifier or assigned name selecting one agent.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentTarget = Schema.Union([
   Schema.Struct({ paneId: PaneId }),
   Schema.Struct({ name: AgentName }),
 ]);
 
-/** Pane identifier or assigned name selecting one agent. */
+/**
+ * Pane identifier or assigned name selecting one agent.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentTarget = typeof AgentTarget.Type;
 
-/** Ergonomic pane identifier or assigned name selecting one agent. */
+/**
+ * Ergonomic pane identifier or assigned name selecting one agent.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentTargetEncoded = typeof AgentTarget.Encoded;
 
-/** Parameters for launching a named agent in one pane. */
+/**
+ * Parameters for launching a named agent in one pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentStartInput = Schema.Struct({
   name: AgentName,
   kind: Schema.NonEmptyString,
@@ -1676,56 +2803,121 @@ export const AgentStartInput = Schema.Struct({
   ),
 });
 
-/** Normalized agent launch parameters. */
+/**
+ * Normalized agent launch parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentStartInput extends Schema.Schema.Type<typeof AgentStartInput> {}
 
-/** Ergonomic agent launch parameters. */
+/**
+ * Ergonomic agent launch parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentStartInputEncoded extends Schema.Codec.Encoded<typeof AgentStartInput> {}
 
-/** Agent and command line created by an agent launch. */
+/**
+ * Agent and command line created by an agent launch.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentStartResult = Schema.Struct({
   agent: Agent,
   argv: Schema.Array(Schema.String),
 });
 
-/** Agent and command line created by an agent launch. */
+/**
+ * Agent and command line created by an agent launch.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentStartResult extends Schema.Schema.Type<typeof AgentStartResult> {}
 
-/** Agent status and server-owned timeout used by wait operations. */
+/**
+ * Agent status and server-owned timeout used by wait operations.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentWaitInput = Schema.Struct({
   until: Schema.OptionFromOptionalKey(Schema.Array(AgentStatus)),
   timeoutMs: Schema.OptionFromOptionalKey(HerdrMilliseconds),
 });
 
-/** Normalized agent wait parameters. */
+/**
+ * Normalized agent wait parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentWaitInput extends Schema.Schema.Type<typeof AgentWaitInput> {}
 
-/** Ergonomic agent wait parameters. */
+/**
+ * Ergonomic agent wait parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentWaitInputEncoded extends Schema.Codec.Encoded<typeof AgentWaitInput> {}
 
-/** Prompt and optional wait policy sent to one agent. */
+/**
+ * Prompt and optional wait policy sent to one agent.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentPromptInput = Schema.Struct({
   text: Schema.String,
   wait: Schema.OptionFromOptionalKey(AgentWaitInput),
 });
 
-/** Normalized agent prompt parameters. */
+/**
+ * Normalized agent prompt parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentPromptInput extends Schema.Schema.Type<typeof AgentPromptInput> {}
 
-/** Ergonomic agent prompt parameters. */
+/**
+ * Ergonomic agent prompt parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentPromptInputEncoded extends Schema.Codec.Encoded<typeof AgentPromptInput> {}
 
-/** Active agent-view state. */
+/**
+ * Active agent-view state.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewState = Schema.Struct({
   active: Schema.Boolean,
   source: optionalString,
   label: optionalString,
 });
 
-/** Active agent-view state. */
+/**
+ * Active agent-view state.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentViewState extends Schema.Schema.Type<typeof AgentViewState> {}
 
-/** Agent-view field selected by name or metadata token. */
+/**
+ * Agent-view field selected by name or metadata token.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewField = Schema.Union([
   Schema.Literals([
     "status",
@@ -1739,10 +2931,20 @@ export const AgentViewField = Schema.Union([
   Schema.Struct({ token: Schema.String }),
 ]);
 
-/** Agent-view field selected by name or metadata token. */
+/**
+ * Agent-view field selected by name or metadata token.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentViewField = typeof AgentViewField.Type;
 
-/** Literal or contextual value used by an agent-view filter. */
+/**
+ * Literal or contextual value used by an agent-view filter.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewValue = Schema.Union([
   Schema.String,
   Schema.Boolean,
@@ -1752,7 +2954,12 @@ export const AgentViewValue = Schema.Union([
   }),
 ]);
 
-/** Literal or contextual value used by an agent-view filter. */
+/**
+ * Literal or contextual value used by an agent-view filter.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentViewValue = typeof AgentViewValue.Type;
 
 interface AgentViewFilterAllValue {
@@ -1789,7 +2996,12 @@ type AgentViewFilterValue =
   | AgentViewFilterInValue
   | AgentViewFilterExistsValue;
 
-/** Recursive boolean filter used by the agent view. */
+/**
+ * Recursive boolean filter used by the agent view.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewFilter: Schema.Codec<AgentViewFilterValue> = Schema.Union([
   Schema.Struct({
     op: Schema.Literals(["all", "any"]),
@@ -1817,10 +3029,20 @@ export const AgentViewFilter: Schema.Codec<AgentViewFilterValue> = Schema.Union(
   }),
 ]);
 
-/** Recursive boolean filter used by the agent view. */
+/**
+ * Recursive boolean filter used by the agent view.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentViewFilter = typeof AgentViewFilter.Type;
 
-/** Agent-view sorting field. */
+/**
+ * Agent-view sorting field.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewSortField = Schema.Union([
   Schema.Literals([
     "workspace_order",
@@ -1835,19 +3057,39 @@ export const AgentViewSortField = Schema.Union([
   Schema.Struct({ token: Schema.String }),
 ]);
 
-/** Agent-view sorting field. */
+/**
+ * Agent-view sorting field.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type AgentViewSortField = typeof AgentViewSortField.Type;
 
-/** One agent-view sort term. */
+/**
+ * One agent-view sort term.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewSort = Schema.Struct({
   field: AgentViewSortField,
   order: Schema.OptionFromOptionalKey(Schema.Literals(["asc", "desc"])),
 });
 
-/** One agent-view sort term. */
+/**
+ * One agent-view sort term.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentViewSort extends Schema.Schema.Type<typeof AgentViewSort> {}
 
-/** Agent-view activation parameters. */
+/**
+ * Agent-view activation parameters.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewSetInput = Schema.Struct({
   source: Schema.String,
   label: Schema.OptionFromOptionalKey(Schema.String),
@@ -1855,26 +3097,56 @@ export const AgentViewSetInput = Schema.Struct({
   sort: Schema.OptionFromOptionalKey(Schema.Array(AgentViewSort)),
 });
 
-/** Normalized agent-view activation parameters. */
+/**
+ * Normalized agent-view activation parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentViewSetInput extends Schema.Schema.Type<typeof AgentViewSetInput> {}
 
-/** Ergonomic agent-view activation parameters. */
+/**
+ * Ergonomic agent-view activation parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentViewSetInputEncoded extends Schema.Codec.Encoded<typeof AgentViewSetInput> {}
 
-/** Optional source used to clear an agent view. */
+/**
+ * Optional source used to clear an agent view.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const AgentViewClearInput = Schema.Struct({
   source: Schema.OptionFromOptionalKey(Schema.String),
 });
 
-/** Normalized agent-view clear parameters. */
+/**
+ * Normalized agent-view clear parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentViewClearInput extends Schema.Schema.Type<typeof AgentViewClearInput> {}
 
-/** Ergonomic agent-view clear parameters. */
+/**
+ * Ergonomic agent-view clear parameters.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface AgentViewClearInputEncoded extends Schema.Codec.Encoded<
   typeof AgentViewClearInput
 > {}
 
-/** Complete immutable snapshot of the active Herdr session. */
+/**
+ * Complete immutable snapshot of the active Herdr session.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const SessionSnapshot = Schema.Struct({
   version: Schema.String,
   protocol: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
@@ -1894,7 +3166,12 @@ export const SessionSnapshot = Schema.Struct({
   }),
 );
 
-/** Complete immutable snapshot of the active Herdr session. */
+/**
+ * Complete immutable snapshot of the active Herdr session.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface SessionSnapshot extends Schema.Schema.Type<typeof SessionSnapshot> {}
 
 const herdrEventType = <const Encoded extends string, const Decoded extends string>(
@@ -1916,7 +3193,12 @@ const WorkspaceEvent = <
   decoded: Decoded,
 ) => Schema.Struct({ type: herdrEventType(type, decoded), workspace: Workspace });
 
-/** Schema-owned union of every normalized Herdr event. */
+/**
+ * Schema-owned union of every normalized Herdr event.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const HerdrEvent = Schema.Union([
   WorkspaceEvent("workspace_created", "workspace.created"),
   WorkspaceEvent("workspace_updated", "workspace.updated"),
@@ -2117,22 +3399,42 @@ export const HerdrEvent = Schema.Union([
   }),
 ]);
 
-/** Schema-owned union of every normalized Herdr event. */
+/**
+ * Schema-owned union of every normalized Herdr event.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type HerdrEvent = typeof HerdrEvent.Type;
 
-/** Event emitted for one subscription specification. */
+/**
+ * Event emitted for one subscription specification.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type EventForSubscription<Spec extends { readonly type: string }> = Extract<
   HerdrEvent,
   { readonly type: Spec["type"] }
 >;
 
-/** Event emitted for one wait matcher. */
+/**
+ * Event emitted for one wait matcher.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type EventForMatch<Match extends { readonly type: string }> = Extract<
   HerdrEvent,
   { readonly type: Match["type"] }
 >;
 
-/** Lifecycle event kinds accepted by a simple subscription. */
+/**
+ * Lifecycle event kinds accepted by a simple subscription.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const LifecycleSubscriptionType = Schema.Literals([
   "workspace.created",
   "workspace.updated",
@@ -2160,10 +3462,20 @@ export const LifecycleSubscriptionType = Schema.Literals([
   "layout.updated",
 ]);
 
-/** Lifecycle event kinds accepted by a simple subscription. */
+/**
+ * Lifecycle event kinds accepted by a simple subscription.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type LifecycleSubscriptionType = typeof LifecycleSubscriptionType.Type;
 
-/** Event subscription specification sent during stream acquisition. */
+/**
+ * Event subscription specification sent during stream acquisition.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const EventSubscriptionSpec = Schema.Union([
   Schema.Struct({ type: LifecycleSubscriptionType }),
   Schema.Struct({
@@ -2187,13 +3499,28 @@ export const EventSubscriptionSpec = Schema.Union([
   }),
 ]);
 
-/** Normalized event subscription specification. */
+/**
+ * Normalized event subscription specification.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type EventSubscriptionSpec = typeof EventSubscriptionSpec.Type;
 
-/** Ergonomic event subscription specification. */
+/**
+ * Ergonomic event subscription specification.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type EventSubscriptionSpecEncoded = typeof EventSubscriptionSpec.Encoded;
 
-/** Event matcher used by a one-shot wait. */
+/**
+ * Event matcher used by a one-shot wait.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const EventMatch = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("workspace.created"),
@@ -2247,30 +3574,70 @@ export const EventMatch = Schema.Union([
   }),
 ]);
 
-/** Normalized event matcher used by a one-shot wait. */
+/**
+ * Normalized event matcher used by a one-shot wait.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type EventMatch = typeof EventMatch.Type;
 
-/** Ergonomic event matcher used by a one-shot wait. */
+/**
+ * Ergonomic event matcher used by a one-shot wait.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type EventMatchEncoded = typeof EventMatch.Encoded;
 
-/** Optional server-owned timeout for a one-shot event wait. */
+/**
+ * Optional server-owned timeout for a one-shot event wait.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const EventWaitInput = Schema.Struct({
   timeoutMs: Schema.OptionFromOptionalKey(HerdrMilliseconds),
 });
 
-/** Normalized server-owned event wait options. */
+/**
+ * Normalized server-owned event wait options.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface EventWaitInput extends Schema.Schema.Type<typeof EventWaitInput> {}
 
-/** Ergonomic server-owned event wait options. */
+/**
+ * Ergonomic server-owned event wait options.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface EventWaitInputEncoded extends Schema.Codec.Encoded<typeof EventWaitInput> {}
 
-/** Operating system supported by a plugin command. */
+/**
+ * Operating system supported by a plugin command.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginPlatform = Schema.Literals(["linux", "macos", "windows"]);
 
-/** Operating system supported by a plugin command. */
+/**
+ * Operating system supported by a plugin command.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PluginPlatform = typeof PluginPlatform.Type;
 
-/** Invocation context supported by a plugin action. */
+/**
+ * Invocation context supported by a plugin action.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginActionContext = Schema.Literals([
   "global",
   "workspace",
@@ -2279,16 +3646,36 @@ export const PluginActionContext = Schema.Literals([
   "selection",
 ]);
 
-/** Invocation context supported by a plugin action. */
+/**
+ * Invocation context supported by a plugin action.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PluginActionContext = typeof PluginActionContext.Type;
 
-/** Placement used by a plugin-owned pane. */
+/**
+ * Placement used by a plugin-owned pane.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginPanePlacement = Schema.Literals(["overlay", "popup", "split", "tab", "zoomed"]);
 
-/** Placement used by a plugin-owned pane. */
+/**
+ * Placement used by a plugin-owned pane.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export type PluginPanePlacement = typeof PluginPanePlacement.Type;
 
-/** Managed or local source metadata for an installed plugin. */
+/**
+ * Managed or local source metadata for an installed plugin.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginSource = Schema.Struct({
   kind: Schema.optionalKey(Schema.Literals(["local", "github"])).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed("local"), {
@@ -2311,19 +3698,39 @@ export const PluginSource = Schema.Struct({
   }),
 );
 
-/** Managed or local source metadata for an installed plugin. */
+/**
+ * Managed or local source metadata for an installed plugin.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginSource extends Schema.Schema.Type<typeof PluginSource> {}
 
-/** Platform-scoped command declared by a plugin manifest. */
+/**
+ * Platform-scoped command declared by a plugin manifest.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginManifestCommand = Schema.Struct({
   platforms: Schema.OptionFromOptionalNullOr(Schema.Array(PluginPlatform)),
   command: Schema.Array(Schema.String),
 });
 
-/** Platform-scoped command declared by a plugin manifest. */
+/**
+ * Platform-scoped command declared by a plugin manifest.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginManifestCommand extends Schema.Schema.Type<typeof PluginManifestCommand> {}
 
-/** Action declared by a plugin manifest. */
+/**
+ * Action declared by a plugin manifest.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginManifestAction = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
@@ -2333,22 +3740,42 @@ export const PluginManifestAction = Schema.Struct({
   command: Schema.Array(Schema.String),
 });
 
-/** Action declared by a plugin manifest. */
+/**
+ * Action declared by a plugin manifest.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginManifestAction extends Schema.Schema.Type<typeof PluginManifestAction> {}
 
-/** Event hook declared by a plugin manifest. */
+/**
+ * Event hook declared by a plugin manifest.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginManifestEventHook = Schema.Struct({
   on: Schema.String,
   platforms: Schema.OptionFromOptionalNullOr(Schema.Array(PluginPlatform)),
   command: Schema.Array(Schema.String),
 });
 
-/** Event hook declared by a plugin manifest. */
+/**
+ * Event hook declared by a plugin manifest.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginManifestEventHook extends Schema.Schema.Type<
   typeof PluginManifestEventHook
 > {}
 
-/** Pane entrypoint declared by a plugin manifest. */
+/**
+ * Pane entrypoint declared by a plugin manifest.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginManifestPane = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
@@ -2360,10 +3787,20 @@ export const PluginManifestPane = Schema.Struct({
   command: Schema.Array(Schema.String),
 });
 
-/** Pane entrypoint declared by a plugin manifest. */
+/**
+ * Pane entrypoint declared by a plugin manifest.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginManifestPane extends Schema.Schema.Type<typeof PluginManifestPane> {}
 
-/** URL link handler declared by a plugin manifest. */
+/**
+ * URL link handler declared by a plugin manifest.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginManifestLinkHandler = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
@@ -2372,12 +3809,22 @@ export const PluginManifestLinkHandler = Schema.Struct({
   platforms: Schema.OptionFromOptionalNullOr(Schema.Array(PluginPlatform)),
 });
 
-/** URL link handler declared by a plugin manifest. */
+/**
+ * URL link handler declared by a plugin manifest.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginManifestLinkHandler extends Schema.Schema.Type<
   typeof PluginManifestLinkHandler
 > {}
 
-/** Fully resolved installed plugin. */
+/**
+ * Fully resolved installed plugin.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const InstalledPlugin = Schema.Struct({
   id: PluginId,
   name: Schema.String,
@@ -2424,10 +3871,20 @@ export const InstalledPlugin = Schema.Struct({
   }),
 );
 
-/** Fully resolved installed plugin. */
+/**
+ * Fully resolved installed plugin.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface InstalledPlugin extends Schema.Schema.Type<typeof InstalledPlugin> {}
 
-/** Resolved plugin action. */
+/**
+ * Resolved plugin action.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginAction = Schema.Struct({
   pluginId: PluginId,
   id: PluginActionId,
@@ -2440,10 +3897,20 @@ export const PluginAction = Schema.Struct({
   platforms: Schema.OptionFromOptionalNullOr(Schema.Array(PluginPlatform)),
 }).pipe(Schema.encodeKeys({ pluginId: "plugin_id", id: "action_id" }));
 
-/** Resolved plugin action. */
+/**
+ * Resolved plugin action.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginAction extends Schema.Schema.Type<typeof PluginAction> {}
 
-/** Runtime context passed to a plugin action. */
+/**
+ * Runtime context passed to a plugin action.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginInvocationContext = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalNullOr(WorkspaceId),
   workspaceLabel: optionalString,
@@ -2479,12 +3946,22 @@ export const PluginInvocationContext = Schema.Struct({
   }),
 );
 
-/** Runtime context passed to a plugin action. */
+/**
+ * Runtime context passed to a plugin action.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginInvocationContext extends Schema.Schema.Type<
   typeof PluginInvocationContext
 > {}
 
-/** Camel-case plugin invocation context accepted from SDK callers. */
+/**
+ * Camel-case plugin invocation context accepted from SDK callers.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginInvocationContextInput = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
   workspaceLabel: Schema.OptionFromOptionalKey(Schema.String),
@@ -2503,12 +3980,22 @@ export const PluginInvocationContextInput = Schema.Struct({
   linkHandlerId: Schema.OptionFromOptionalKey(Schema.String),
 });
 
-/** Normalized camel-case plugin invocation context. */
+/**
+ * Normalized camel-case plugin invocation context.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginInvocationContextInput extends Schema.Schema.Type<
   typeof PluginInvocationContextInput
 > {}
 
-/** One plugin command execution log. */
+/**
+ * One plugin command execution log.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginCommandLog = Schema.Struct({
   id: PluginLogId,
   pluginId: PluginId,
@@ -2533,30 +4020,60 @@ export const PluginCommandLog = Schema.Struct({
   }),
 );
 
-/** One plugin command execution log. */
+/**
+ * One plugin command execution log.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginCommandLog extends Schema.Schema.Type<typeof PluginCommandLog> {}
 
-/** Completed plugin action invocation. */
+/**
+ * Completed plugin action invocation.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginActionInvocation = Schema.Struct({
   action: PluginAction,
   context: PluginInvocationContext,
   log: PluginCommandLog,
 });
 
-/** Completed plugin action invocation. */
+/**
+ * Completed plugin action invocation.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginActionInvocation extends Schema.Schema.Type<typeof PluginActionInvocation> {}
 
-/** Open plugin pane and its owning entrypoint. */
+/**
+ * Open plugin pane and its owning entrypoint.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginPane = Schema.Struct({
   pluginId: PluginId,
   entrypoint: Schema.String,
   pane: Pane,
 }).pipe(Schema.encodeKeys({ pluginId: "plugin_id" }));
 
-/** Open plugin pane and its owning entrypoint. */
+/**
+ * Open plugin pane and its owning entrypoint.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginPane extends Schema.Schema.Type<typeof PluginPane> {}
 
-/** Plugin link source supplied by the caller. */
+/**
+ * Plugin link source supplied by the caller.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginSourceInput = Schema.Struct({
   kind: Schema.OptionFromOptionalKey(Schema.Literals(["local", "github"])),
   owner: Schema.OptionFromOptionalKey(Schema.String),
@@ -2568,64 +4085,134 @@ export const PluginSourceInput = Schema.Struct({
   installedUnixMs: Schema.OptionFromOptionalKey(HerdrUnixMilliseconds),
 });
 
-/** Normalized plugin link source. */
+/**
+ * Normalized plugin link source.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginSourceInput extends Schema.Schema.Type<typeof PluginSourceInput> {}
 
-/** Plugin link request. */
+/**
+ * Plugin link request.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginLinkInput = Schema.Struct({
   path: HerdrAbsolutePath,
   enabled: Schema.OptionFromOptionalKey(Schema.Boolean),
   source: Schema.OptionFromOptionalKey(PluginSourceInput),
 });
 
-/** Normalized plugin link request. */
+/**
+ * Normalized plugin link request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginLinkInput extends Schema.Schema.Type<typeof PluginLinkInput> {}
 
-/** Ergonomic plugin link request. */
+/**
+ * Ergonomic plugin link request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginLinkInputEncoded extends Schema.Codec.Encoded<typeof PluginLinkInput> {}
 
-/** Optional plugin filter. */
+/**
+ * Optional plugin filter.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginFilterInput = Schema.Struct({
   pluginId: Schema.OptionFromOptionalKey(PluginId),
 });
 
-/** Normalized plugin filter. */
+/**
+ * Normalized plugin filter.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginFilterInput extends Schema.Schema.Type<typeof PluginFilterInput> {}
 
-/** Ergonomic plugin filter. */
+/**
+ * Ergonomic plugin filter.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginFilterInputEncoded extends Schema.Codec.Encoded<typeof PluginFilterInput> {}
 
-/** Optional plugin and invocation context for an action. */
+/**
+ * Optional plugin and invocation context for an action.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginActionInvokeInput = Schema.Struct({
   pluginId: Schema.OptionFromOptionalKey(PluginId),
   context: Schema.OptionFromOptionalKey(PluginInvocationContextInput),
 });
 
-/** Normalized plugin action invocation input. */
+/**
+ * Normalized plugin action invocation input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginActionInvokeInput extends Schema.Schema.Type<
   typeof PluginActionInvokeInput
 > {}
 
-/** Ergonomic plugin action invocation input. */
+/**
+ * Ergonomic plugin action invocation input.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginActionInvokeInputEncoded extends Schema.Codec.Encoded<
   typeof PluginActionInvokeInput
 > {}
 
-/** Plugin command-log list filter. */
+/**
+ * Plugin command-log list filter.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginLogListInput = Schema.Struct({
   pluginId: Schema.OptionFromOptionalKey(PluginId),
   limit: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt(), Schema.isGreaterThan(0))),
 });
 
-/** Normalized plugin command-log list filter. */
+/**
+ * Normalized plugin command-log list filter.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginLogListInput extends Schema.Schema.Type<typeof PluginLogListInput> {}
 
-/** Ergonomic plugin command-log list filter. */
+/**
+ * Ergonomic plugin command-log list filter.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginLogListInputEncoded extends Schema.Codec.Encoded<
   typeof PluginLogListInput
 > {}
 
-/** Plugin pane open request. */
+/**
+ * Plugin pane open request.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginPaneOpenInput = Schema.Struct({
   entrypoint: Schema.String,
   placement: Schema.OptionFromOptionalKey(PluginPanePlacement),
@@ -2639,27 +4226,57 @@ export const PluginPaneOpenInput = Schema.Struct({
   env: Schema.OptionFromOptionalKey(HerdrEnvironment),
 });
 
-/** Normalized plugin pane open request. */
+/**
+ * Normalized plugin pane open request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginPaneOpenInput extends Schema.Schema.Type<typeof PluginPaneOpenInput> {}
 
-/** Ergonomic plugin pane open request. */
+/**
+ * Ergonomic plugin pane open request.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginPaneOpenInputEncoded extends Schema.Codec.Encoded<
   typeof PluginPaneOpenInput
 > {}
 
-/** Plugin unlink outcome. */
+/**
+ * Plugin unlink outcome.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginUnlinkResult = Schema.Struct({
   pluginId: PluginId,
   removed: Schema.Boolean,
 }).pipe(Schema.encodeKeys({ pluginId: "plugin_id" }));
 
-/** Plugin unlink outcome. */
+/**
+ * Plugin unlink outcome.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginUnlinkResult extends Schema.Schema.Type<typeof PluginUnlinkResult> {}
 
-/** Closed plugin pane identifier. */
+/**
+ * Closed plugin pane identifier.
+ *
+ * @category schemas
+ * @since 0.8.2
+ */
 export const PluginPaneCloseResult = Schema.Struct({
   paneId: PaneId,
 }).pipe(Schema.encodeKeys({ paneId: "pane_id" }));
 
-/** Closed plugin pane identifier. */
+/**
+ * Closed plugin pane identifier.
+ *
+ * @category models
+ * @since 0.8.2
+ */
 export interface PluginPaneCloseResult extends Schema.Schema.Type<typeof PluginPaneCloseResult> {}
