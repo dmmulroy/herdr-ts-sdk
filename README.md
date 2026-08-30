@@ -202,6 +202,6 @@ included explicitly because the upstream JSON Schema intentionally omits it.
 
 ## Examples
 
-The [`examples/`](examples/) directory contains seven executable, type-checked workflows covering
-development workspaces, isolated worktrees, agent reviews, command completion notifications, live
-event monitoring, graphics overlays, and session inventory.
+The [`examples/`](examples/) directory contains eleven executable, type-checked workflows. They
+range from focused SDK recipes to creative compositions such as a multi-agent idea lab, a
+declarative command center, an animated graphics beacon, and an attention-sorted agent rescue view.
