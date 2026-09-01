@@ -28,7 +28,12 @@ import {
 import type { ErrorResponse } from "./generated/wire-error-response.ts";
 import type { ResponseResult } from "./generated/wire-success-response.ts";
 import { parseHerdrWireResponse } from "./herdr-wire-parser.ts";
-import { HerdrConfig, HerdrRequestDeadline, herdrConfigLayer } from "./herdr-config.ts";
+import {
+  HerdrConfig,
+  HerdrRequestDeadline,
+  herdrConfigLayer,
+  isSupportedHerdrProtocol,
+} from "./herdr-config.ts";
 import {
   HerdrInvalidInput,
   HerdrInvalidResponse,
@@ -340,10 +345,10 @@ export const makeHerdrTransport = Effect.gen(function* () {
     requestWithoutCompatibility("compatibility_check", "ping", pingParameters).pipe(
       Effect.catchTag("HerdrUnsupportedEvent", Effect.die),
       Effect.flatMap(({ requestId, result }) =>
-        result.protocol === config.supportedProtocol
+        isSupportedHerdrProtocol(result.protocol)
           ? Effect.void
           : Effect.fail(
-              new HerdrUnsupportedProtocol(result.protocol, config.supportedProtocol, requestId),
+              new HerdrUnsupportedProtocol(result.protocol, config.supportedProtocols, requestId),
             ),
       ),
     ),
@@ -455,7 +460,7 @@ export const makeHerdrTransport = Effect.gen(function* () {
         yield* verifyProtocolCompatibility(
           response.result,
           response.requestId,
-          config.supportedProtocol,
+          config.supportedProtocols,
         );
         return response;
       }
@@ -682,14 +687,14 @@ function isWireErrorResponse(
 function verifyProtocolCompatibility(
   result: ResponseResult,
   requestId: string,
-  supportedProtocol: 21,
+  supportedProtocols: readonly number[],
 ): Effect.Effect<void, HerdrUnsupportedProtocol | HerdrUnsupportedResult> {
   if (result.type !== "pong") {
     return Effect.fail(new HerdrUnsupportedResult("ping", result.type, "pong", requestId));
   }
-  return result.protocol === supportedProtocol
+  return isSupportedHerdrProtocol(result.protocol)
     ? Effect.void
-    : Effect.fail(new HerdrUnsupportedProtocol(result.protocol, supportedProtocol, requestId));
+    : Effect.fail(new HerdrUnsupportedProtocol(result.protocol, supportedProtocols, requestId));
 }
 
 function encodeWireRequest<Method extends WireMethod>(
