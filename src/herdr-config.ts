@@ -19,9 +19,7 @@ import {
 import { HerdrConfigurationError } from "./herdr-errors.ts";
 
 const DEFAULT_REQUEST_TIMEOUT = Duration.seconds(5);
-/** Wire protocols this SDK accepts. Stable 0.8.0=19, 0.8.2=20; 21 already shipped. */
 export const SUPPORTED_HERDR_PROTOCOLS = [19, 20, 21] as const;
-export const LATEST_HERDR_PROTOCOL = 21 as const;
 
 export function isSupportedHerdrProtocol(
   protocol: number,
@@ -132,8 +130,6 @@ export interface IHerdrConfig {
   readonly requestTimeout: HerdrRequestDeadline;
   /** Optional application identity included in the compatibility handshake. */
   readonly application: Option.Option<HerdrApplication>;
-  /** Latest protocol this SDK was generated against. */
-  readonly supportedProtocol: typeof LATEST_HERDR_PROTOCOL;
   /** Wire protocols this SDK accepts at handshake. */
   readonly supportedProtocols: typeof SUPPORTED_HERDR_PROTOCOLS;
 }
@@ -248,7 +244,6 @@ function resolveHerdrConfig(
       ...selection,
       requestTimeout,
       application: Option.fromNullishOr(options.application),
-      supportedProtocol: LATEST_HERDR_PROTOCOL,
       supportedProtocols: SUPPORTED_HERDR_PROTOCOLS,
     };
   });

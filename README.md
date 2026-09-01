@@ -27,7 +27,7 @@ const summary = await Effect.runPromise(program.pipe(Effect.provide(herdrSdkLaye
 ## Status and compatibility
 
 - SDK version: `0.8.2`
-- Herdr wire protocol: `19`, `20`, and `21` (generated against 21)
+- Herdr wire protocol: `19`, `20`, and `21`
 - Effect: `4.0.0-beta.105`
 - Runtime: Node.js 20 or newer on a platform supported by Herdr's local socket server
 
@@ -121,7 +121,7 @@ const sdkLayer = herdrSdkLayerFromOptions({
 
 const protocol = await Effect.runPromise(
   Effect.gen(function* () {
-    return (yield* HerdrSdk).config.supportedProtocol;
+    return (yield* HerdrSdk).config.supportedProtocols;
   }).pipe(Effect.provide(sdkLayer)),
 );
 ```
