@@ -27,12 +27,12 @@ const summary = await Effect.runPromise(program.pipe(Effect.provide(herdrSdkLaye
 ## Status and compatibility
 
 - SDK version: `0.8.2`
-- Herdr wire protocol: `19`, `20`, and `21`
+- Herdr wire protocol: `18`, `19`, `20`, and `21`
 - Effect: `4.0.0-beta.105`
 - Runtime: Node.js 20 or newer on a platform supported by Herdr's local socket server
 
 The SDK verifies protocol compatibility before ordinary requests and shares that compatibility
-result across the Layer graph. A server outside protocols 19, 20, and 21 fails with
+result across the Layer graph. A server outside protocols 18, 19, 20, and 21 fails with
 `HerdrUnsupportedProtocol`.
 
 `@herdr/sdk` is not currently published to npm. To use it today, build and pack this repository:
@@ -132,7 +132,7 @@ Configuration exports:
 | ------------------------------------- | ----------------------------------------------------------------- |
 | `HerdrRequestDeadline`                | Schema for finite, non-negative Effect durations.                 |
 | `HerdrApplication`                    | Schema for compatibility-handshake caller identity.               |
-| `HerdrProtocolVersion`                | Literal schema for protocols `19`, `20`, and `21`.                |
+| `HerdrProtocolVersion`                | Literal schema for protocols `18`, `19`, `20`, and `21`.          |
 | `HerdrConfigOptions`                  | Schema for explicit SDK options.                                  |
 | `HerdrConfig` / `IHerdrConfig`        | Yieldable service and resolved configuration shape.               |
 | `herdrConfigRecipe`                   | Ambient Effect `Config` recipe.                                   |
@@ -566,7 +566,7 @@ Expected failures remain values in the Effect error channel and are recoverable 
 | `HerdrTransportError`       | Unix-socket connect, read, write, or premature-close failure.                 |
 | `HerdrRequestTimeout`       | A local SDK deadline elapsed; the server outcome may be uncertain.            |
 | `HerdrInvalidResponse`      | Malformed, oversized, mismatched, missing, or schema-invalid server response. |
-| `HerdrUnsupportedProtocol`  | Server protocol is outside 19, 20, and 21.                                    |
+| `HerdrUnsupportedProtocol`  | Server protocol is outside 18, 19, 20, and 21.                                |
 | `HerdrUnsupportedResult`    | An operation returned an unsupported success discriminant.                    |
 | `HerdrUnsupportedEvent`     | A stream or wait received an unsupported event discriminant.                  |
 | `HerdrServerError`          | The server rejected a request with an open-code error response.               |

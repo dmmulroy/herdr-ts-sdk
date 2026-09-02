@@ -166,7 +166,7 @@ export class HerdrInvalidResponse extends Schema.TaggedError<HerdrInvalidRespons
 }
 
 /**
- * Server protocol version is outside the set this SDK accepts (19, 20, 21).
+ * Server protocol version is outside the set this SDK accepts (18, 19, 20, 21).
  *
  * @category errors
  * @since 0.8.2
