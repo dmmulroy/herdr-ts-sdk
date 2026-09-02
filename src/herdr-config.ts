@@ -19,7 +19,7 @@ import {
 import { HerdrConfigurationError } from "./herdr-errors.ts";
 
 const DEFAULT_REQUEST_TIMEOUT = Duration.seconds(5);
-export const SUPPORTED_HERDR_PROTOCOLS = [18, 19, 20, 21] as const;
+export const SUPPORTED_HERDR_PROTOCOLS = [17, 18, 19, 20, 21] as const;
 
 export function isSupportedHerdrProtocol(
   protocol: number,

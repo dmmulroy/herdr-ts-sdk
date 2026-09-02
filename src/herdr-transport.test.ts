@@ -122,9 +122,22 @@ test("transport classifies malformed, oversized, server, timeout, and protocol f
   expect(timeout).toBeInstanceOf(HerdrRequestTimeout);
   expect(timeout).toMatchObject({ requestId: "timeout", timeoutMilliseconds: 10 });
 
+  const protocol17Path = await startHerdrServer([], (request) => ({
+    id: request.id,
+    result: { type: "pong", version: "0.7.5", protocol: 17 },
+  }));
+  const protocol17 = await runWithTransport(
+    protocol17Path,
+    Effect.gen(function* () {
+      const transport = yield* HerdrTransport;
+      return yield* transport.request("ping", {}, { requestId: "protocol-17" });
+    }),
+  );
+  expect(protocol17.result).toMatchObject({ type: "pong", protocol: 17 });
+
   const protocol18Path = await startHerdrServer([], (request) => ({
     id: request.id,
-    result: { type: "pong", version: "0.7.5", protocol: 18 },
+    result: { type: "pong", version: "0.7.5-preview", protocol: 18 },
   }));
   const protocol18 = await runWithTransport(
     protocol18Path,
@@ -173,7 +186,7 @@ test("transport classifies malformed, oversized, server, timeout, and protocol f
     }).pipe(Effect.flip),
   );
   expect(protocol).toBeInstanceOf(HerdrUnsupportedProtocol);
-  expect(protocol).toMatchObject({ actualProtocol: 22, supportedProtocols: [18, 19, 20, 21] });
+  expect(protocol).toMatchObject({ actualProtocol: 22, supportedProtocols: [17, 18, 19, 20, 21] });
 
   const partialPath = await startHerdrServer(
     [],
@@ -324,7 +337,7 @@ function runWithTransport<A, E>(
     session: Option.none(),
     requestTimeout: Duration.seconds(1),
     application: Option.none(),
-    supportedProtocols: [18, 19, 20, 21],
+    supportedProtocols: [17, 18, 19, 20, 21],
   };
   return Effect.runPromise(
     effect.pipe(

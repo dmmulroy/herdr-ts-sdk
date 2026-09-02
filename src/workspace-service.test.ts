@@ -144,7 +144,7 @@ function runWithWorkspaceService<A, E>(
     session: Option.none(),
     requestTimeout: Duration.seconds(1),
     application: Option.none(),
-    supportedProtocols: [18, 19, 20, 21],
+    supportedProtocols: [17, 18, 19, 20, 21],
   };
   return Effect.runPromise(
     effect.pipe(
