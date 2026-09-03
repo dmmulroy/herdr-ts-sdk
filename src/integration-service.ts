@@ -44,7 +44,7 @@ export interface IIntegrationService {
  * @since 0.8.2
  */
 export class IntegrationService extends Context.Service<IntegrationService, IIntegrationService>()(
-  "@herdr/sdk/IntegrationService",
+  "@rudironsoni/sdk/IntegrationService",
 ) {}
 
 /**

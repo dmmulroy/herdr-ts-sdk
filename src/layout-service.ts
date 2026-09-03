@@ -64,7 +64,7 @@ export interface ILayoutService {
  * @since 0.8.2
  */
 export class LayoutService extends Context.Service<LayoutService, ILayoutService>()(
-  "@herdr/sdk/LayoutService",
+  "@rudironsoni/sdk/LayoutService",
 ) {}
 
 /**

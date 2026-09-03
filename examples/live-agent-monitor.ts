@@ -1,5 +1,5 @@
 import { Effect, Option, Stream } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
+import { HerdrSdk } from "@rudironsoni/sdk";
 import { runHerdrExample } from "./example-runtime.ts";
 
 const liveAgentMonitor = Effect.gen(function* () {

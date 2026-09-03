@@ -76,7 +76,7 @@ export interface IWorktreeService {
  * @since 0.8.2
  */
 export class WorktreeService extends Context.Service<WorktreeService, IWorktreeService>()(
-  "@herdr/sdk/WorktreeService",
+  "@rudironsoni/sdk/WorktreeService",
 ) {}
 
 /**

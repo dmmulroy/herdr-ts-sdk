@@ -1,7 +1,7 @@
 # Herdr TypeScript SDK examples
 
 These examples are executable entrypoints for common local automation workflows. They use the
-public `@herdr/sdk` package API and ambient Herdr configuration—`HERDR_SOCKET_PATH`, `HERDR_SESSION`,
+public `@rudironsoni/sdk` package API and ambient Herdr configuration—`HERDR_SOCKET_PATH`, `HERDR_SESSION`,
 or the platform's default session.
 
 ## Prerequisites
@@ -9,7 +9,7 @@ or the platform's default session.
 1. Start a Herdr release compatible with this SDK's protocol and attach a foreground client.
 2. Install this repository with `pnpm install`.
 3. Use Node.js 22.6 or newer to run TypeScript directly, or adapt an example in an application that
-   depends on `@herdr/sdk`.
+   depends on `@rudironsoni/sdk`.
 
 ```sh
 pnpm run example -- examples/session-inventory.ts

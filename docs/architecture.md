@@ -1,6 +1,6 @@
 # Herdr SDK architecture
 
-`@herdr/sdk` v1 is an Effect-native client for the local Herdr protocol-21 socket API. The
+`@rudironsoni/sdk` v1 is an Effect-native client for the local Herdr protocol-21 socket API. The
 Effect implementation under `src/` is the only supported package architecture; there is no Promise
 client or cancellation compatibility facade.
 

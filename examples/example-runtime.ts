@@ -1,5 +1,5 @@
 import { Cause, Effect, Exit } from "effect";
-import { HerdrSdk, herdrSdkLayer } from "@herdr/sdk";
+import { HerdrSdk, herdrSdkLayer } from "@rudironsoni/sdk";
 
 /**
  * Runs one Herdr example with ambient SDK configuration and a readable terminal failure.

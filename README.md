@@ -1,4 +1,4 @@
-# `@herdr/sdk`
+# `@rudironsoni/sdk`
 
 Effect-native TypeScript access to Herdr's local Unix-socket API.
 
@@ -9,7 +9,7 @@ precise errors, dependencies, and interruption.
 
 ```ts
 import { Effect } from "effect";
-import { HerdrSdk, herdrSdkLayer } from "@herdr/sdk";
+import { HerdrSdk, herdrSdkLayer } from "@rudironsoni/sdk";
 
 const program = Effect.gen(function* () {
   const herdr = yield* HerdrSdk;
@@ -27,25 +27,39 @@ const summary = await Effect.runPromise(program.pipe(Effect.provide(herdrSdkLaye
 ## Status and compatibility
 
 - SDK version: `0.8.2`
-- Herdr wire protocol: `21`
+- Herdr wire protocol: `17`, `18`, `19`, `20`, and `21`
 - Effect: `4.0.0-beta.105`
 - Runtime: Node.js 20 or newer on a platform supported by Herdr's local socket server
 
 The SDK verifies protocol compatibility before ordinary requests and shares that compatibility
-result across the Layer graph. A server on another protocol fails with
-`HerdrUnsupportedProtocol`; install matching Herdr and SDK releases instead of bypassing the check.
+result across the Layer graph. A server outside protocols 17, 18, 19, 20, and 21 fails with
+`HerdrUnsupportedProtocol`.
 
-`@herdr/sdk` is not currently published to npm. To use it today, build and pack this repository:
+`@rudironsoni/sdk` is published to GitHub Packages. Point your package manager at the GitHub npm
+registry for the `@rudironsoni` scope, then install the package. GitHub Packages requires a
+personal access token with the `read:packages` scope for installs, even for public repositories:
+
+```ini
+# ~/.npmrc or project .npmrc
+@rudironsoni:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
 
 ```sh
-git clone https://github.com/dmmulroy/herdr-ts-sdk.git
+pnpm install @rudironsoni/sdk
+```
+
+Alternatively, build and pack this repository directly:
+
+```sh
+git clone https://github.com/rudironsoni/herdr-ts-sdk.git
 cd herdr-ts-sdk
 pnpm install
 pnpm run build
 pnpm pack
 ```
 
-Then install the generated tarball in the consuming project and import from `@herdr/sdk`.
+Then install the generated tarball in the consuming project and import from `@rudironsoni/sdk`.
 
 ## API shape
 
@@ -111,7 +125,7 @@ Use explicit options when an application owns SDK configuration:
 
 ```ts
 import { Effect, Duration } from "effect";
-import { HerdrSdk, herdrSdkLayerFromOptions } from "@herdr/sdk";
+import { HerdrSdk, herdrSdkLayerFromOptions } from "@rudironsoni/sdk";
 
 const sdkLayer = herdrSdkLayerFromOptions({
   session: "work",
@@ -121,7 +135,7 @@ const sdkLayer = herdrSdkLayerFromOptions({
 
 const protocol = await Effect.runPromise(
   Effect.gen(function* () {
-    return (yield* HerdrSdk).config.supportedProtocol;
+    return (yield* HerdrSdk).config.supportedProtocols;
   }).pipe(Effect.provide(sdkLayer)),
 );
 ```
@@ -132,7 +146,7 @@ Configuration exports:
 | ------------------------------------- | ----------------------------------------------------------------- |
 | `HerdrRequestDeadline`                | Schema for finite, non-negative Effect durations.                 |
 | `HerdrApplication`                    | Schema for compatibility-handshake caller identity.               |
-| `HerdrProtocolVersion`                | Literal schema for protocol `21`.                                 |
+| `HerdrProtocolVersion`                | Literal schema for protocols `17`, `18`, `19`, `20`, and `21`.    |
 | `HerdrConfigOptions`                  | Schema for explicit SDK options.                                  |
 | `HerdrConfig` / `IHerdrConfig`        | Yieldable service and resolved configuration shape.               |
 | `herdrConfigRecipe`                   | Ambient Effect `Config` recipe.                                   |
@@ -155,7 +169,7 @@ Advanced applications can depend on one service directly:
 
 ```ts
 import { Effect } from "effect";
-import { WorkspaceService, workspaceServiceLayer } from "@herdr/sdk";
+import { WorkspaceService, workspaceServiceLayer } from "@rudironsoni/sdk";
 
 const labels = Effect.gen(function* () {
   const workspaces = yield* WorkspaceService;
@@ -386,7 +400,7 @@ Literal subscription tuples narrow the emitted event union:
 
 ```ts
 import { Effect, Stream } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
+import { HerdrSdk } from "@rudironsoni/sdk";
 
 const monitor = Effect.gen(function* () {
   const herdr = yield* HerdrSdk;
@@ -566,7 +580,7 @@ Expected failures remain values in the Effect error channel and are recoverable 
 | `HerdrTransportError`       | Unix-socket connect, read, write, or premature-close failure.                 |
 | `HerdrRequestTimeout`       | A local SDK deadline elapsed; the server outcome may be uncertain.            |
 | `HerdrInvalidResponse`      | Malformed, oversized, mismatched, missing, or schema-invalid server response. |
-| `HerdrUnsupportedProtocol`  | Server and SDK protocol versions differ.                                      |
+| `HerdrUnsupportedProtocol`  | Server protocol is outside 17, 18, 19, 20, and 21.                            |
 | `HerdrUnsupportedResult`    | An operation returned an unsupported success discriminant.                    |
 | `HerdrUnsupportedEvent`     | A stream or wait received an unsupported event discriminant.                  |
 | `HerdrServerError`          | The server rejected a request with an open-code error response.               |
@@ -585,7 +599,7 @@ const resilientPing = herdr.server
   .pipe(
     Effect.catchTag("HerdrUnsupportedProtocol", (error) =>
       Effect.logError(
-        `Herdr protocol ${error.actualProtocol} is incompatible with ${error.supportedProtocol}`,
+        `Herdr protocol ${error.actualProtocol} is incompatible with ${error.supportedProtocols.join(", ")}`,
       ),
     ),
   );

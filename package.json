@@ -1,15 +1,15 @@
 {
-  "name": "@herdr/sdk",
+  "name": "@rudironsoni/sdk",
   "version": "0.8.2",
   "description": "Effect-native TypeScript SDK for Herdr's local socket API.",
-  "homepage": "https://github.com/dmmulroy/herdr-ts-sdk#readme",
+  "homepage": "https://github.com/rudironsoni/herdr-ts-sdk#readme",
   "bugs": {
-    "url": "https://github.com/dmmulroy/herdr-ts-sdk/issues"
+    "url": "https://github.com/rudironsoni/herdr-ts-sdk/issues"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dmmulroy/herdr-ts-sdk.git"
+    "url": "git+https://github.com/rudironsoni/herdr-ts-sdk.git"
   },
   "files": [
     "dist"
@@ -20,7 +20,8 @@
     "./package.json": "./package.json"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "generate": "node scripts/generate-wire-types.mjs && vp fmt schema scripts src/generated",
