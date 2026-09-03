@@ -2,7 +2,7 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "paths": {
-      "@herdr/sdk": ["../src/index.ts"]
+      "@rudironsoni/sdk": ["../src/index.ts"]
     }
   },
   "include": ["./**/*.ts"]

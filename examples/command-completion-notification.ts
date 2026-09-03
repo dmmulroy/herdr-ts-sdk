@@ -1,5 +1,5 @@
 import { Duration, Effect, Option } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
+import { HerdrSdk } from "@rudironsoni/sdk";
 import { runHerdrExample } from "./example-runtime.ts";
 
 const buildCompletionMarker = "HERDR_BUILD_FINISHED";

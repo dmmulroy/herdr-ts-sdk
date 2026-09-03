@@ -34,7 +34,7 @@ export interface IPopupService {
  * @since 0.8.2
  */
 export class PopupService extends Context.Service<PopupService, IPopupService>()(
-  "@herdr/sdk/PopupService",
+  "@rudironsoni/sdk/PopupService",
 ) {}
 
 /**

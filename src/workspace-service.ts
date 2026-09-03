@@ -114,7 +114,7 @@ export interface IWorkspaceService {
  * @since 0.8.2
  */
 export class WorkspaceService extends Context.Service<WorkspaceService, IWorkspaceService>()(
-  "@herdr/sdk/WorkspaceService",
+  "@rudironsoni/sdk/WorkspaceService",
 ) {}
 
 /**

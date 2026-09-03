@@ -170,7 +170,7 @@ export interface IPluginService {
  * @since 0.8.2
  */
 export class PluginService extends Context.Service<PluginService, IPluginService>()(
-  "@herdr/sdk/PluginService",
+  "@rudironsoni/sdk/PluginService",
 ) {}
 
 /**
