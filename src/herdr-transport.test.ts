@@ -1,7 +1,7 @@
-import { Deferred, Duration, Effect, Fiber, Option, Schema, Stream, type Scope } from "effect";
+import { Deferred, Duration, Effect, Fiber, Option, Stream, type Scope } from "effect";
 import { expect, test, type TestContext } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
-import { HerdrConfig, HerdrProtocolVersion } from "./herdr-config.ts";
+import { HerdrConfig, SUPPORTED_HERDR_PROTOCOLS } from "./herdr-config.ts";
 import { parseHerdrAbsolutePath } from "./herdr-domain.ts";
 import {
   HerdrInvalidResponse,
@@ -100,10 +100,26 @@ test("transport classifies malformed, oversized, server, timeout, and protocol f
       );
       expect(timeout).toBeInstanceOf(HerdrRequestTimeout);
       expect(timeout).toMatchObject({ requestId: "timeout", timeoutMilliseconds: 10 });
+      for (const protocol of [17, 18, 19, 20] as const) {
+        const acceptedServer = yield* startHerdrTestServer((request) =>
+          Effect.succeed({
+            id: request.id,
+            result: { type: "pong", version: "fixture", protocol },
+          }),
+        );
+        const accepted = yield* withTransport(
+          acceptedServer.socketPath,
+          Effect.gen(function* () {
+            const transport = yield* HerdrTransport;
+            return yield* transport.request("ping", {}, { requestId: `protocol-${protocol}` });
+          }),
+        );
+        expect(accepted.result).toMatchObject({ type: "pong", protocol });
+      }
       const protocolServer = yield* startHerdrTestServer((request) =>
         Effect.succeed({
           id: request.id,
-          result: { type: "pong", version: "future", protocol: packageJson.herdr.protocol - 1 },
+          result: { type: "pong", version: "future", protocol: 22 },
         }),
       );
       const protocol = yield* withTransport(
@@ -115,8 +131,8 @@ test("transport classifies malformed, oversized, server, timeout, and protocol f
       );
       expect(protocol).toBeInstanceOf(HerdrUnsupportedProtocol);
       expect(protocol).toMatchObject({
-        actualProtocol: packageJson.herdr.protocol - 1,
-        supportedProtocol: packageJson.herdr.protocol,
+        actualProtocol: 22,
+        supportedProtocols: [17, 18, 19, 20, 21],
       });
       const partialServer = yield* startHerdrTestServer((_request, socket) =>
         Effect.sync(() => {
@@ -596,9 +612,6 @@ function withTransport<A, E, R>(
 ) {
   return Effect.gen(function* () {
     const absolutePath = yield* parseHerdrAbsolutePath(socketPath);
-    const supportedProtocol = yield* Schema.decodeUnknownEffect(HerdrProtocolVersion)(
-      packageJson.herdr.protocol,
-    );
     return yield* effect.pipe(
       Effect.provide(herdrTransportLayerWithoutDependencies),
       Effect.provideService(
@@ -608,7 +621,7 @@ function withTransport<A, E, R>(
           session: Option.none(),
           requestTimeout: Duration.seconds(1),
           application: Option.none(),
-          supportedProtocol,
+          supportedProtocols: SUPPORTED_HERDR_PROTOCOLS,
         }),
       ),
     );

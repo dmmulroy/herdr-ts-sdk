@@ -1,4 +1,4 @@
-import { Deferred, Duration, Effect, Exit, Fiber, Option, Schema } from "effect";
+import { Deferred, Duration, Effect, Exit, Fiber, Option } from "effect";
 import { expect, test } from "vite-plus/test";
 import {
   acquireSdkTelemetryTestServer,
@@ -6,13 +6,11 @@ import {
 } from "../scripts/sdk-telemetry-test-server.ts";
 import { traceSdkExecution } from "../scripts/sdk-telemetry.mjs";
 import packageJson from "../package.json" with { type: "json" };
-import { HerdrConfig, HerdrProtocolVersion } from "./herdr-config.ts";
+import { HerdrConfig, SUPPORTED_HERDR_PROTOCOLS } from "./herdr-config.ts";
 import { parseHerdrAbsolutePath } from "./herdr-domain.ts";
 import { HerdrTransport, herdrTransportLayerWithoutDependencies } from "./herdr-transport.ts";
 import { HerdrRawTestResponse, startHerdrTestServer } from "./herdr-test-server.ts";
 import { makeHerdrSuccessResponse } from "./herdr-wire-fixtures.ts";
-
-const parseTracingProtocol = Schema.decodeUnknownEffect(HerdrProtocolVersion);
 
 /** Uses only the local fixture endpoint; ambient Herdr configuration never enters trace tests. */
 function withTracingTransport<A, E, R>(
@@ -21,7 +19,6 @@ function withTracingTransport<A, E, R>(
 ) {
   return Effect.gen(function* () {
     const absolutePath = yield* parseHerdrAbsolutePath(socketPath);
-    const supportedProtocol = yield* parseTracingProtocol(packageJson.herdr.protocol);
     return yield* effect.pipe(
       Effect.provide(herdrTransportLayerWithoutDependencies),
       Effect.provideService(
@@ -31,7 +28,7 @@ function withTracingTransport<A, E, R>(
           session: Option.none(),
           requestTimeout: Duration.seconds(1),
           application: Option.none(),
-          supportedProtocol,
+          supportedProtocols: SUPPORTED_HERDR_PROTOCOLS,
         }),
       ),
     );

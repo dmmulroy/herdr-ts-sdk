@@ -105,7 +105,7 @@ test("sdk isolated live evidence execution", (context) => {
           "Export acknowledgement does not establish viewer ingestion.",
           ...(Option.isSome(failure) && failure.value._tag === "HerdrUnsupportedProtocol"
             ? [
-                `Compatibility blocked before workflow actions: server protocol ${failure.value.actualProtocol}; SDK requires ${failure.value.supportedProtocol}. Install compatible Herdr and SDK versions; do not bypass the handshake.`,
+                `Compatibility blocked before workflow actions: server protocol ${failure.value.actualProtocol}; SDK supports ${failure.value.supportedProtocols.join(", ")}. Install compatible Herdr and SDK versions; do not bypass the handshake.`,
               ]
             : []),
         ],

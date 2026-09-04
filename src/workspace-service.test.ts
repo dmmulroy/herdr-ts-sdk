@@ -150,7 +150,7 @@ function withWorkspaceService<A, E>(
     session: Option.none(),
     requestTimeout: Duration.seconds(1),
     application: Option.none(),
-    supportedProtocol: 21,
+    supportedProtocols: [17, 18, 19, 20, 21],
   };
   return effect.pipe(
     Effect.provide(workspaceServiceLayerWithoutDependencies),
