@@ -15,7 +15,7 @@ export default defineConfig({
     },
   },
   fmt: {
-    ignorePatterns: ["repos/**"],
+    ignorePatterns: ["repos/**", "CHANGELOG.md"],
   },
   test: {
     include: ["src/**/*.test.ts"],

@@ -1,6 +1,6 @@
 {
   "name": "@rudironsoni/sdk",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Effect-native TypeScript SDK for Herdr's local socket API.",
   "homepage": "https://github.com/rudironsoni/herdr-ts-sdk#readme",
   "bugs": {
