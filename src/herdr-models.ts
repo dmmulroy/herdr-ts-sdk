@@ -270,19 +270,21 @@ export interface ClientWindowTitleResult extends Schema.Schema.Type<
   typeof ClientWindowTitleResult
 > {}
 
+const WorkspaceWorktreeInput = Schema.Struct({
+  repoKey: Schema.String,
+  repoName: Schema.String,
+  repoRoot: HerdrAbsolutePath,
+  checkoutPath: HerdrAbsolutePath,
+  isLinkedWorktree: Schema.Boolean,
+});
+
 /**
  * Worktree information attached to an open workspace.
  *
  * @category schemas
  * @since 0.8.2
  */
-export const WorkspaceWorktree = Schema.Struct({
-  repoKey: Schema.String,
-  repoName: Schema.String,
-  repoRoot: HerdrAbsolutePath,
-  checkoutPath: HerdrAbsolutePath,
-  isLinkedWorktree: Schema.Boolean,
-}).pipe(
+export const WorkspaceWorktree = WorkspaceWorktreeInput.pipe(
   Schema.encodeKeys({
     repoKey: "repo_key",
     repoName: "repo_name",
@@ -2948,7 +2950,7 @@ export type AgentViewField = typeof AgentViewField.Type;
 export const AgentViewValue = Schema.Union([
   Schema.String,
   Schema.Boolean,
-  Schema.Finite,
+  Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
   Schema.Struct({
     context: Schema.Literals(["current_workspace_id", "current_tab_id"]),
   }),
@@ -3966,7 +3968,7 @@ export const PluginInvocationContextInput = Schema.Struct({
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
   workspaceLabel: Schema.OptionFromOptionalKey(Schema.String),
   workspaceCwd: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
-  worktree: Schema.OptionFromOptionalKey(WorkspaceWorktree),
+  worktree: Schema.OptionFromOptionalKey(WorkspaceWorktreeInput),
   tabId: Schema.OptionFromOptionalKey(TabId),
   tabLabel: Schema.OptionFromOptionalKey(Schema.String),
   focusedPaneId: Schema.OptionFromOptionalKey(PaneId),

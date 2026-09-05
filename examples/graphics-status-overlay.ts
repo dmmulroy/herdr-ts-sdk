@@ -53,4 +53,4 @@ const graphicsStatusOverlay = Effect.gen(function* () {
   );
 });
 
-await runHerdrExample(graphicsStatusOverlay);
+runHerdrExample(graphicsStatusOverlay);

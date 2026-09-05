@@ -49,4 +49,4 @@ const declarativeCommandCenter = Effect.gen(function* () {
   yield* Effect.logInfo(`Applied a reproducible three-pane command center in tab ${layout.tabId}`);
 });
 
-await runHerdrExample(declarativeCommandCenter);
+runHerdrExample(declarativeCommandCenter);

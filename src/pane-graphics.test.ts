@@ -1,10 +1,12 @@
-import { Duration, Effect, Option, Schema } from "effect";
+import { Deferred, Duration, Effect, Exit, Fiber, Option, Schema, Scope } from "effect";
 import { expect, test } from "vite-plus/test";
 import { HerdrAbsolutePath } from "./herdr-domain.ts";
 import {
   HerdrGraphicsStreamClosed,
   HerdrImageTooLarge,
   HerdrInvalidFrame,
+  HerdrInvalidInput,
+  HerdrInvalidResponse,
   HerdrRequestTimeout,
   HerdrServerError,
 } from "./herdr-errors.ts";
@@ -414,6 +416,252 @@ test("graphics writers retain post-handshake server errors for the next write", 
     await server.close();
   }
 });
+
+test.each(["write", "writeFile"] as const)(
+  "invalid %s options do not invalidate a graphics writer",
+  async (operation) => {
+    const server = await startHerdrTestServer((request, socket) => {
+      if (request.method === "pane.graphics.stream") socket.removeAllListeners("data");
+      return makeHerdrSuccessResponse(request);
+    });
+    try {
+      const failure = await runWithSdk(
+        server.socketPath,
+        Effect.scoped(
+          Effect.gen(function* () {
+            const herdr = yield* HerdrSdk;
+            const writer = yield* herdr.panes.graphics.openStream(herdr.ids.pane("pane-1"));
+            const options = { requestTimeout: Duration.millis(-1) };
+            const invalidWrite =
+              operation === "write"
+                ? writer.write(
+                    { format: "png", imageWidth: 1, imageHeight: 1, data: Uint8Array.of(1) },
+                    options,
+                  )
+                : writer.writeFile(
+                    {
+                      format: "rgba",
+                      imageWidth: 1,
+                      imageHeight: 1,
+                      filePath: herdr.ids.absolutePath("/tmp/frame.rgba"),
+                      sequence: 1,
+                      revision: 1,
+                    },
+                    options,
+                  );
+            const failure = yield* invalidWrite.pipe(Effect.flip);
+            yield* writer.write({
+              format: "png",
+              imageWidth: 1,
+              imageHeight: 1,
+              data: Uint8Array.of(1),
+            });
+            return failure;
+          }),
+        ),
+      );
+      expect(failure).toBeInstanceOf(HerdrInvalidInput);
+    } finally {
+      await server.close();
+    }
+  },
+);
+
+test.each(["interruption", "scope closure"] as const)(
+  "%s during a direct-file acknowledgement wait closes and invalidates the writer",
+  async (termination) => {
+    const frameReceived = Effect.runSync(Deferred.make<void>());
+    const socketClosed = Effect.runSync(Deferred.make<void>());
+    const server = await startHerdrTestServer((request, socket) => {
+      if (request.method === "pane.graphics.stream") {
+        socket.removeAllListeners("data");
+        let buffered = "";
+        socket.on("data", (chunk: Buffer) => {
+          buffered += chunk.toString("utf8");
+          if (buffered.includes("\n")) Effect.runSync(Deferred.succeed(frameReceived, undefined));
+        });
+        socket.once("close", () => Effect.runSync(Deferred.succeed(socketClosed, undefined)));
+      }
+      return makeHerdrSuccessResponse(request);
+    });
+    try {
+      const failure = await runWithSdk(
+        server.socketPath,
+        Effect.scoped(
+          Effect.gen(function* () {
+            const herdr = yield* HerdrSdk;
+            const writerScope = yield* Scope.fork(yield* Scope.Scope);
+            const writer = yield* herdr.panes.graphics
+              .openStream(herdr.ids.pane("pane-1"))
+              .pipe(Scope.provide(writerScope));
+            const pending = yield* writer
+              .writeFile({
+                format: "rgba",
+                imageWidth: 1,
+                imageHeight: 1,
+                filePath: herdr.ids.absolutePath("/tmp/frame.rgba"),
+                sequence: 1,
+                revision: 1,
+              })
+              .pipe(Effect.forkScoped);
+            yield* Deferred.await(frameReceived).pipe(Effect.timeout("1 second"));
+            if (termination === "interruption") {
+              yield* Fiber.interrupt(pending);
+            } else {
+              yield* Scope.close(writerScope, Exit.void);
+              const pendingFailure = yield* Fiber.join(pending).pipe(
+                Effect.flip,
+                Effect.timeout("1 second"),
+              );
+              expect(pendingFailure).toBeInstanceOf(HerdrGraphicsStreamClosed);
+            }
+            const failure = yield* writer
+              .write({
+                format: "png",
+                imageWidth: 1,
+                imageHeight: 1,
+                data: Uint8Array.of(1),
+              })
+              .pipe(Effect.flip);
+            yield* Deferred.await(socketClosed).pipe(Effect.timeout("1 second"));
+            return failure;
+          }),
+        ),
+      );
+      expect(failure).toBeInstanceOf(HerdrGraphicsStreamClosed);
+    } finally {
+      await server.close();
+    }
+  },
+);
+
+test("a mismatched direct-file acknowledgement invalidates the writer before another frame", async () => {
+  const socketClosed = Effect.runSync(Deferred.make<void>());
+  const server = await startHerdrTestServer((request, socket) => {
+    if (request.method === "pane.graphics.stream") {
+      socket.removeAllListeners("data");
+      let buffered = "";
+      socket.on("data", (chunk: Buffer) => {
+        buffered += chunk.toString("utf8");
+        if (!buffered.includes("\n")) return;
+        socket.write(
+          JSON.stringify({
+            id: `${request.id}:file:99`,
+            result: { type: "pane_graphics_frame_ack", sequence: 99, revision: 1 },
+          }) + "\n",
+        );
+      });
+      socket.once("close", () => Effect.runSync(Deferred.succeed(socketClosed, undefined)));
+    }
+    return makeHerdrSuccessResponse(request);
+  });
+  try {
+    const result = await runWithSdk(
+      server.socketPath,
+      Effect.scoped(
+        Effect.gen(function* () {
+          const herdr = yield* HerdrSdk;
+          const writer = yield* herdr.panes.graphics.openStream(herdr.ids.pane("pane-1"));
+          const mismatch = yield* writer
+            .writeFile({
+              format: "rgba",
+              imageWidth: 1,
+              imageHeight: 1,
+              filePath: herdr.ids.absolutePath("/tmp/frame.rgba"),
+              sequence: 1,
+              revision: 1,
+            })
+            .pipe(Effect.flip);
+          const closed = yield* writer
+            .write({
+              format: "png",
+              imageWidth: 1,
+              imageHeight: 1,
+              data: Uint8Array.of(1),
+            })
+            .pipe(Effect.flip);
+          yield* Deferred.await(socketClosed).pipe(Effect.timeout("1 second"));
+          return { mismatch, closed };
+        }),
+      ),
+    );
+    expect(result.mismatch).toBeInstanceOf(HerdrInvalidResponse);
+    expect(result.closed).toBeInstanceOf(HerdrGraphicsStreamClosed);
+  } finally {
+    await server.close();
+  }
+});
+
+test.each(["configured", "override"] as const)(
+  "%s deadline bounds a direct-file write whose server never acknowledges",
+  async (deadlineSource) => {
+    const frameReceived = Effect.runSync(Deferred.make<void>());
+    const socketClosed = Effect.runSync(Deferred.make<void>());
+    const server = await startHerdrTestServer((request, socket) => {
+      if (request.method === "pane.graphics.stream") {
+        socket.removeAllListeners("data");
+        let buffered = "";
+        socket.on("data", (chunk: Buffer) => {
+          buffered += chunk.toString("utf8");
+          if (buffered.includes("\n")) Effect.runSync(Deferred.succeed(frameReceived, undefined));
+        });
+        socket.once("close", () => Effect.runSync(Deferred.succeed(socketClosed, undefined)));
+      }
+      return makeHerdrSuccessResponse(request);
+    });
+    try {
+      const result = await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const herdr = yield* HerdrSdk;
+            const writer = yield* herdr.panes.graphics.openStream(herdr.ids.pane("pane-1"));
+            const timeout = yield* writer
+              .writeFile(
+                {
+                  format: "rgba",
+                  imageWidth: 1,
+                  imageHeight: 1,
+                  filePath: herdr.ids.absolutePath("/tmp/frame.rgba"),
+                  sequence: 1,
+                  revision: 1,
+                },
+                deadlineSource === "override" ? { requestTimeout: Duration.millis(50) } : {},
+              )
+              .pipe(Effect.flip);
+            const closed = yield* writer
+              .write({
+                format: "png",
+                imageWidth: 1,
+                imageHeight: 1,
+                data: Uint8Array.of(1),
+              })
+              .pipe(Effect.flip);
+            yield* Deferred.await(frameReceived);
+            yield* Deferred.await(socketClosed);
+            return { timeout, closed };
+          }),
+        ).pipe(
+          Effect.provide(
+            herdrSdkLayerFromOptions({
+              socketPath: HerdrAbsolutePath.make(server.socketPath),
+              requestTimeout:
+                deadlineSource === "configured" ? Duration.millis(50) : Duration.seconds(5),
+            }),
+          ),
+          Effect.timeout("2 seconds"),
+        ),
+      );
+      expect(result.timeout).toBeInstanceOf(HerdrRequestTimeout);
+      expect(result.timeout).toMatchObject({
+        operation: "graphics_write",
+        timeoutMilliseconds: 50,
+      });
+      expect(result.closed).toBeInstanceOf(HerdrGraphicsStreamClosed);
+    } finally {
+      await server.close();
+    }
+  },
+);
 
 function runWithSdk<A, E>(socketPath: string, effect: Effect.Effect<A, E, HerdrSdk>): Promise<A> {
   return Effect.runPromise(

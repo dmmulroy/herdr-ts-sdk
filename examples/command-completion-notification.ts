@@ -23,7 +23,8 @@ const commandCompletionNotification = Effect.gen(function* () {
     {
       source: "recent_unwrapped",
       lines: 200,
-      match: { type: "substring", value: buildCompletionMarker },
+      // Match only the emitted result, not the shell's echo of the command above.
+      match: { type: "regex", value: `^${buildCompletionMarker}:[0-9]+$` },
       timeoutMs: Duration.toMillis(Duration.minutes(10)),
       stripAnsi: true,
     },
@@ -42,4 +43,4 @@ const commandCompletionNotification = Effect.gen(function* () {
   });
 });
 
-await runHerdrExample(commandCompletionNotification);
+runHerdrExample(commandCompletionNotification);

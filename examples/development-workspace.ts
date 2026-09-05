@@ -31,4 +31,4 @@ const developmentWorkspace = Effect.gen(function* () {
   );
 });
 
-await runHerdrExample(developmentWorkspace);
+runHerdrExample(developmentWorkspace);

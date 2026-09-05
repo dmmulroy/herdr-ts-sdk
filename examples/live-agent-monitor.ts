@@ -29,4 +29,4 @@ const liveAgentMonitor = Effect.gen(function* () {
     );
 });
 
-await runHerdrExample(liveAgentMonitor);
+runHerdrExample(liveAgentMonitor);

@@ -9,9 +9,11 @@ import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
 import { NodeStream } from "@effect/platform-node-shared";
 import {
+  Cache,
   Context,
   Duration,
   Effect,
+  Exit,
   Layer,
   Option,
   Result,
@@ -26,8 +28,10 @@ import {
   wireResultTypesByMethod,
 } from "./generated/wire-method-map.ts";
 import type { ErrorResponse } from "./generated/wire-error-response.ts";
+import herdrApiSchema from "../schema/herdr-api.schema.json" with { type: "json" };
 import type { ResponseResult } from "./generated/wire-success-response.ts";
 import { parseHerdrWireResponse } from "./herdr-wire-parser.ts";
+import { encodeWireRequest, type HerdrWireParameters } from "./herdr-wire-encoder.ts";
 import { HerdrConfig, HerdrRequestDeadline, herdrConfigLayer } from "./herdr-config.ts";
 import {
   HerdrInvalidInput,
@@ -46,39 +50,10 @@ import {
 } from "./herdr-socket-lines.ts";
 
 const MAX_RESPONSE_LINE_BYTES = 1024 * 1024;
+const responseUtf8Decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
-type CamelCaseWireKey<Key extends string> = Key extends `${infer Head}_${infer Tail}`
-  ? `${Head}${Capitalize<CamelCaseWireKey<Tail>>}`
-  : Key;
-
-type CamelCaseWireValue<Value> = Value extends string | number | boolean | null | undefined
-  ? Value
-  : Value extends readonly (infer Item)[]
-    ? readonly CamelCaseWireValue<Item>[]
-    : Value extends object
-      ? {
-          readonly [Key in keyof Value as string extends Key
-            ? never
-            : Key extends string
-              ? CamelCaseWireKey<Key>
-              : Key]: CamelCaseWireValue<Value[Key]>;
-        }
-      : never;
-
-/**
- * Camel-cased SDK parameters correlated to one generated wire method.
- *
- * @category models
- * @since 0.8.2
- */
-export type HerdrWireParameters<Method extends WireMethod> = Method extends "ping"
-  ? {
-      readonly application?: {
-        readonly name: string;
-        readonly version?: string;
-      };
-    }
-  : CamelCaseWireValue<WireMethodMap[Method]["params"]>;
+/** Keeps wire parameter types available from the transport import path. */
+export type { HerdrWireParameters } from "./herdr-wire-encoder.ts";
 
 /**
  * Local request options applied by the transport rather than the Herdr server.
@@ -195,12 +170,20 @@ export interface IHerdrTransport {
     params: HerdrWireParameters<Method>,
     options?: HerdrTransportRequestOptionsEncoded,
   ) => Effect.Effect<HerdrTransportStream<Method>, HerdrTransportRequestError, Scope.Scope>;
-  /** Writes bytes to an acquired long-lived stream with interruption and deadline cleanup. */
-  readonly writeStreamBytes: (
-    stream: HerdrTransportStream<"pane.graphics.stream">,
-    bytes: Uint8Array,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<void, HerdrInvalidInput | HerdrTransportError | HerdrRequestTimeout>;
+  /** Applies one deadline to a stream write and its optional acknowledgement; the caller owns acknowledgement failure cleanup. */
+  readonly writeStreamBytes: {
+    (
+      stream: HerdrTransportStream<"pane.graphics.stream">,
+      bytes: Uint8Array,
+      options?: HerdrTransportRequestOptionsEncoded,
+    ): Effect.Effect<void, HerdrInvalidInput | HerdrTransportError | HerdrRequestTimeout>;
+    <A, E, R>(
+      stream: HerdrTransportStream<"pane.graphics.stream">,
+      bytes: Uint8Array,
+      options: HerdrTransportRequestOptionsEncoded | undefined,
+      acknowledgement: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, HerdrInvalidInput | HerdrTransportError | HerdrRequestTimeout | E, R>;
+  };
 }
 
 /**
@@ -213,39 +196,6 @@ export class HerdrTransport extends Context.Service<HerdrTransport, IHerdrTransp
   "@herdr/sdk/HerdrTransport",
 ) {}
 
-interface WireJsonObject {
-  readonly [key: string]: WireJsonValue | undefined;
-}
-
-type WireJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | undefined
-  | readonly WireJsonValue[]
-  | WireJsonObject;
-
-const WireJsonValueSchema: Schema.Codec<WireJsonValue> = Schema.Union([
-  Schema.String,
-  Schema.Number,
-  Schema.Boolean,
-  Schema.Null,
-  Schema.Undefined,
-  Schema.Array(Schema.suspend((): Schema.Codec<WireJsonValue> => WireJsonValueSchema)),
-  Schema.Record(
-    Schema.String,
-    Schema.suspend((): Schema.Codec<WireJsonValue> => WireJsonValueSchema),
-  ),
-]);
-
-const parseWireJsonValue = Schema.decodeUnknownSync(WireJsonValueSchema);
-const isWireJsonObject = Schema.is(
-  Schema.Record(
-    Schema.String,
-    Schema.suspend((): Schema.Codec<WireJsonValue> => WireJsonValueSchema),
-  ),
-);
 const parseHerdrTransportRequestOptions = Schema.decodeUnknownEffect(HerdrTransportRequestOptions);
 
 const HerdrWaitEventProbe = Schema.Struct({
@@ -254,6 +204,9 @@ const HerdrWaitEventProbe = Schema.Struct({
     event: Schema.Struct({ event: Schema.String }),
   }),
 });
+
+const parseHerdrWaitEventProbe = Schema.decodeUnknownOption(HerdrWaitEventProbe);
+const supportedWaitEventKinds = new Set<string>(herdrApiSchema.schemas.event.$defs.EventKind.enum);
 
 type TransportOperation = HerdrTransportError["operation"];
 
@@ -270,17 +223,13 @@ export const makeHerdrTransport = Effect.gen(function* () {
     operation: TransportOperation,
     method: Method,
     params: HerdrWireParameters<Method>,
-    options: HerdrTransportRequestOptionsEncoded = {},
+    requestId: string,
+    deadline: Duration.Duration,
   ): Effect.Effect<
     HerdrTransportSuccess<Method>,
     HerdrTransportRequestError | HerdrUnsupportedEvent
   > => {
     return Effect.gen(function* () {
-      const parsedOptions = yield* parseHerdrTransportRequestOptions(options).pipe(
-        Effect.mapError((cause) => new HerdrInvalidInput("transport.requestOptions", cause)),
-      );
-      const requestId = Option.getOrElse(parsedOptions.requestId, randomUUID);
-      const deadline = Option.getOrElse(parsedOptions.requestTimeout, () => config.requestTimeout);
       const payload = encodeWireRequest(requestId, method, params);
       yield* Effect.annotateCurrentSpan({
         "herdr.method": method,
@@ -296,8 +245,10 @@ export const makeHerdrTransport = Effect.gen(function* () {
       const response = yield* Effect.try({
         try: () => parseHerdrWireResponse(value, requestId),
         catch: (cause) => {
-          const eventProbe = Schema.decodeUnknownOption(HerdrWaitEventProbe)(value);
-          return method === "events.wait" && Option.isSome(eventProbe)
+          const eventProbe = parseHerdrWaitEventProbe(value);
+          return method === "events.wait" &&
+            Option.isSome(eventProbe) &&
+            !supportedWaitEventKinds.has(eventProbe.value.result.event.event)
             ? new HerdrUnsupportedEvent(eventProbe.value.result.event.event, requestId)
             : new HerdrInvalidResponse("schema_mismatch", requestId, cause);
         },
@@ -312,6 +263,16 @@ export const makeHerdrTransport = Effect.gen(function* () {
       }
       if (isWireErrorResponse(response)) {
         return yield* new HerdrServerError(response.error.code, response.error.message, requestId);
+      }
+      if (
+        response.result.type === "wait_matched" &&
+        response.result.event.event !== response.result.event.data.type
+      ) {
+        return yield* new HerdrInvalidResponse(
+          "schema_mismatch",
+          requestId,
+          new Error("Herdr wait event envelope disagrees with its data type"),
+        );
       }
       if (!isExpectedWireResult(method, response.result)) {
         return yield* new HerdrUnsupportedResult(
@@ -336,18 +297,32 @@ export const makeHerdrTransport = Effect.gen(function* () {
     }),
   });
 
-  const compatibilityCheck = yield* Effect.cached(
-    requestWithoutCompatibility("compatibility_check", "ping", pingParameters).pipe(
-      Effect.catchTag("HerdrUnsupportedEvent", Effect.die),
-      Effect.flatMap(({ requestId, result }) =>
-        result.protocol === config.supportedProtocol
-          ? Effect.void
-          : Effect.fail(
-              new HerdrUnsupportedProtocol(result.protocol, config.supportedProtocol, requestId),
-            ),
+  const compatibilityCache = yield* Cache.makeWith(
+    (_key: "compatibility") =>
+      Effect.suspend(() =>
+        requestWithoutCompatibility(
+          "compatibility_check",
+          "ping",
+          pingParameters,
+          randomUUID(),
+          config.requestTimeout,
+        ),
+      ).pipe(
+        Effect.catchTag("HerdrUnsupportedEvent", Effect.die),
+        Effect.flatMap(({ requestId, result }) =>
+          result.protocol === config.supportedProtocol
+            ? Effect.void
+            : Effect.fail(
+                new HerdrUnsupportedProtocol(result.protocol, config.supportedProtocol, requestId),
+              ),
+        ),
       ),
-    ),
+    {
+      capacity: 1,
+      timeToLive: (exit) => (Exit.isSuccess(exit) ? Duration.infinity : Duration.zero),
+    },
   );
+  const compatibilityCheck = Cache.get(compatibilityCache, "compatibility");
 
   const openStream = <Method extends "events.subscribe" | "pane.graphics.stream">(
     method: Method,
@@ -367,52 +342,55 @@ export const makeHerdrTransport = Effect.gen(function* () {
         "herdr.method": method,
         "herdr.operation": operation,
       });
-      yield* compatibilityCheck;
       return yield* Effect.gen(function* () {
+        yield* compatibilityCheck;
         const socket = yield* Effect.acquireRelease(
           connectSocket(config.socketPath, operation, requestId),
           closeSocket,
+          { interruptible: true },
         );
-        yield* writeSocketPayload(socket, payload, operation, requestId);
-        const handshake = yield* readSocketLine(socket, operation, requestId);
-        const response = yield* Effect.try({
-          try: () => parseHerdrWireResponse(handshake.value, requestId),
-          catch: (cause) => new HerdrInvalidResponse("schema_mismatch", requestId, cause),
-        });
+        return yield* Effect.gen(function* () {
+          yield* writeSocketPayload(socket, payload, operation, requestId);
+          const handshake = yield* readSocketLine(socket, operation, requestId);
+          const response = yield* Effect.try({
+            try: () => parseHerdrWireResponse(handshake.value, requestId),
+            catch: (cause) => new HerdrInvalidResponse("schema_mismatch", requestId, cause),
+          });
 
-        if (response.id !== requestId) {
-          return yield* new HerdrInvalidResponse(
-            "correlation_mismatch",
+          if (response.id !== requestId) {
+            return yield* new HerdrInvalidResponse(
+              "correlation_mismatch",
+              requestId,
+              new Error(`Herdr returned response ID ${response.id}`),
+            );
+          }
+          if (isWireErrorResponse(response)) {
+            return yield* new HerdrServerError(
+              response.error.code,
+              response.error.message,
+              requestId,
+            );
+          }
+          if (!isExpectedWireResult(method, response.result)) {
+            return yield* new HerdrUnsupportedResult(
+              method,
+              response.result.type,
+              wireResultTypesByMethod[method].join(" or "),
+              requestId,
+            );
+          }
+          yield* Effect.annotateCurrentSpan("herdr.result_type", response.result.type);
+          const writeSemaphore = yield* Semaphore.make(1);
+          return {
             requestId,
-            new Error(`Herdr returned response ID ${response.id}`),
-          );
-        }
-        if (isWireErrorResponse(response)) {
-          return yield* new HerdrServerError(
-            response.error.code,
-            response.error.message,
-            requestId,
-          );
-        }
-        if (!isExpectedWireResult(method, response.result)) {
-          return yield* new HerdrUnsupportedResult(
-            method,
-            response.result.type,
-            wireResultTypesByMethod[method].join(" or "),
-            requestId,
-          );
-        }
-        yield* Effect.annotateCurrentSpan("herdr.result_type", response.result.type);
-        const writeSemaphore = yield* Semaphore.make(1);
-        return {
-          requestId,
-          result: response.result,
-          readBytes: makeHerdrSocketByteStream(socket, handshake.remainder, operation, requestId),
-          write: (bytes: Uint8Array) =>
-            writeSemaphore
-              .withPermit(writeSocketPayload(socket, bytes, "graphics_write", requestId))
-              .pipe(Effect.onInterrupt(() => closeSocket(socket))),
-        };
+            result: response.result,
+            readBytes: makeHerdrSocketByteStream(socket, handshake.remainder, operation, requestId),
+            write: (bytes: Uint8Array) =>
+              writeSemaphore
+                .withPermit(writeSocketPayload(socket, bytes, "graphics_write", requestId))
+                .pipe(Effect.onInterrupt(() => closeSocket(socket))),
+          };
+        }).pipe(Effect.onError(() => closeSocket(socket)));
       }).pipe(
         Effect.timeoutOrElse({
           duration: deadline,
@@ -445,33 +423,63 @@ export const makeHerdrTransport = Effect.gen(function* () {
     HerdrTransportRequestError | HerdrUnsupportedEvent
   > {
     return Effect.fn("HerdrTransport.request")(function* () {
-      if (method === "ping") {
-        const response = yield* requestWithoutCompatibility(
-          "compatibility_check",
-          method,
-          params,
-          options,
-        );
-        yield* verifyProtocolCompatibility(
-          response.result,
-          response.requestId,
-          config.supportedProtocol,
-        );
-        return response;
-      }
-      yield* compatibilityCheck;
-      return yield* requestWithoutCompatibility("request", method, params, options);
+      const parsedOptions = yield* parseHerdrTransportRequestOptions(options).pipe(
+        Effect.mapError((cause) => new HerdrInvalidInput("transport.requestOptions", cause)),
+      );
+      const requestId = Option.getOrElse(parsedOptions.requestId, randomUUID);
+      const deadline = Option.getOrElse(parsedOptions.requestTimeout, () => config.requestTimeout);
+      return yield* Effect.gen(function* () {
+        if (method === "ping") {
+          const response = yield* requestWithoutCompatibility(
+            "compatibility_check",
+            method,
+            params,
+            requestId,
+            deadline,
+          );
+          yield* verifyProtocolCompatibility(
+            response.result,
+            response.requestId,
+            config.supportedProtocol,
+          );
+          return response;
+        }
+        yield* compatibilityCheck;
+        return yield* requestWithoutCompatibility("request", method, params, requestId, deadline);
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: deadline,
+          orElse: () =>
+            Effect.fail(
+              new HerdrRequestTimeout(
+                method === "ping" ? "compatibility_check" : "request",
+                requestId,
+                Duration.toMillis(deadline),
+              ),
+            ),
+        }),
+      );
     })();
   }
 
-  return HerdrTransport.of({
-    openStream,
-    request,
-    writeStreamBytes: Effect.fn("HerdrTransport.writeStreamBytes")(function* (
-      stream,
-      bytes,
-      options = {},
-    ) {
+  function writeStreamBytes(
+    stream: HerdrTransportStream<"pane.graphics.stream">,
+    bytes: Uint8Array,
+    options?: HerdrTransportRequestOptionsEncoded,
+  ): Effect.Effect<void, HerdrInvalidInput | HerdrTransportError | HerdrRequestTimeout>;
+  function writeStreamBytes<A, E, R>(
+    stream: HerdrTransportStream<"pane.graphics.stream">,
+    bytes: Uint8Array,
+    options: HerdrTransportRequestOptionsEncoded | undefined,
+    acknowledgement: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, HerdrInvalidInput | HerdrTransportError | HerdrRequestTimeout | E, R>;
+  function writeStreamBytes<A, E, R>(
+    stream: HerdrTransportStream<"pane.graphics.stream">,
+    bytes: Uint8Array,
+    options: HerdrTransportRequestOptionsEncoded = {},
+    acknowledgement?: Effect.Effect<A, E, R>,
+  ): Effect.Effect<void | A, HerdrInvalidInput | HerdrTransportError | HerdrRequestTimeout | E, R> {
+    return Effect.fn("HerdrTransport.writeStreamBytes")(function* () {
       const parsedOptions = yield* parseHerdrTransportRequestOptions(options).pipe(
         Effect.mapError((cause) => new HerdrInvalidInput("transport.requestOptions", cause)),
       );
@@ -480,7 +488,10 @@ export const makeHerdrTransport = Effect.gen(function* () {
         "herdr.method": "pane.graphics.stream",
         "herdr.operation": "graphics_write",
       });
-      return yield* stream.write(bytes).pipe(
+      return yield* Effect.gen(function* () {
+        yield* stream.write(bytes);
+        if (acknowledgement !== undefined) return yield* acknowledgement;
+      }).pipe(
         Effect.timeoutOrElse({
           duration: deadline,
           orElse: () =>
@@ -493,8 +504,10 @@ export const makeHerdrTransport = Effect.gen(function* () {
             ),
         }),
       );
-    }),
-  });
+    })();
+  }
+
+  return HerdrTransport.of({ openStream, request, writeStreamBytes });
 });
 
 /**
@@ -537,7 +550,6 @@ function connectSocket(
     let completed = false;
     const cleanup = (): void => {
       socket.off("connect", onConnect);
-      socket.off("error", onError);
     };
     const onConnect = (): void => {
       completed = true;
@@ -545,13 +557,17 @@ function connectSocket(
       resume(Effect.succeed(socket));
     };
     const onError = (cause: Error): void => {
+      // Node also emits write callback failures as events. Keep a listener across
+      // handshake/read gaps; writes report their callback error and reads inspect socket.errored.
+      if (completed) return;
       completed = true;
       cleanup();
       socket.destroy();
       resume(Effect.fail(new HerdrTransportError(operation, "connect", requestId, cause)));
     };
     socket.once("connect", onConnect);
-    socket.once("error", onError);
+    socket.on("error", onError);
+    socket.once("close", () => socket.off("error", onError));
     return Effect.sync(() => {
       if (completed) return;
       completed = true;
@@ -585,10 +601,18 @@ function makeHerdrSocketByteStream(
   operation: TransportOperation,
   requestId: string,
 ): Stream.Stream<Uint8Array, HerdrTransportError> {
-  const socketBytes = NodeStream.fromReadable<Uint8Array, HerdrTransportError>({
-    evaluate: () => socket,
-    onError: (cause) => new HerdrTransportError(operation, "read", requestId, cause),
-  });
+  const socketBytes = Stream.unwrap(
+    Effect.suspend(() =>
+      socket.errored !== null
+        ? Effect.fail(new HerdrTransportError(operation, "read", requestId, socket.errored))
+        : Effect.succeed(
+            NodeStream.fromReadable<Uint8Array, HerdrTransportError>({
+              evaluate: () => socket,
+              onError: (cause) => new HerdrTransportError(operation, "read", requestId, cause),
+            }),
+          ),
+    ),
+  );
   return initialBytes.length === 0
     ? socketBytes
     : Stream.concat(Stream.fromIterable(initialBytes), socketBytes);
@@ -629,6 +653,9 @@ function readSocketLine(
   requestId: string,
 ): Effect.Effect<HerdrSocketLine, HerdrTransportError | HerdrInvalidResponse> {
   return Effect.gen(function* () {
+    if (socket.errored !== null) {
+      return yield* new HerdrTransportError(operation, "read", requestId, socket.errored);
+    }
     const socketBytes = NodeStream.fromReadable<Uint8Array, HerdrTransportError>({
       evaluate: () => socket,
       closeOnDone: false,
@@ -666,7 +693,7 @@ function parseFirstHerdrSocketLine(
     if (lineBytes === undefined) return [split.success.buffer, []];
 
     const value = yield* Effect.try({
-      try: () => JSON.parse(Buffer.from(lineBytes).toString("utf8")),
+      try: () => JSON.parse(responseUtf8Decoder.decode(lineBytes)),
       catch: (cause) => new HerdrInvalidResponse("malformed_json", requestId, cause),
     });
     return [split.success.buffer, [{ value, remainder: split.success.remainder }]];
@@ -692,31 +719,6 @@ function verifyProtocolCompatibility(
     : Effect.fail(new HerdrUnsupportedProtocol(result.protocol, supportedProtocol, requestId));
 }
 
-function encodeWireRequest<Method extends WireMethod>(
-  requestId: string,
-  method: Method,
-  params: HerdrWireParameters<Method>,
-): string {
-  const encodedParams = toSnakeCaseWireValue(parseWireJsonValue(params));
-  return `${JSON.stringify({ id: requestId, method, params: encodedParams })}\n`;
-}
-
-function toSnakeCaseWireValue(value: WireJsonValue): WireJsonValue {
-  if (Array.isArray(value)) return value.map(toSnakeCaseWireValue);
-  if (!isWireJsonObject(value)) return value;
-
-  const output: { [key: string]: WireJsonValue } = {};
-  for (const [key, child] of Object.entries(value)) {
-    if (child === undefined) continue;
-    output[toSnakeCaseWireKey(key)] = toSnakeCaseWireValue(child);
-  }
-  return output;
-}
-
-function toSnakeCaseWireKey(key: string): string {
-  return key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
-
 function exchangeWireLine(
   socketPath: string,
   payload: string,
@@ -725,7 +727,7 @@ function exchangeWireLine(
   deadline: Duration.Duration,
 ): Effect.Effect<unknown, HerdrTransportError | HerdrRequestTimeout | HerdrInvalidResponse> {
   const exchange = Effect.acquireUseRelease(
-    connectSocket(socketPath, operation, requestId),
+    connectSocket(socketPath, operation, requestId).pipe(Effect.interruptible),
     (socket) =>
       Effect.gen(function* () {
         yield* writeSocketPayload(socket, payload, operation, requestId);

@@ -18,6 +18,6 @@ export default defineConfig({
     ignorePatterns: ["repos/**"],
   },
   test: {
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "scripts/**/*.test.ts"],
   },
 });

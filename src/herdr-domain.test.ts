@@ -12,6 +12,13 @@ test("custom domain filters reject unsafe paths and invalid percentage syntax", 
   await expect(Effect.runPromise(parseHerdrPopupSize("101%"))).rejects.toBeDefined();
 });
 
+test("filesystem paths and session names reject embedded NUL bytes", async () => {
+  await expect(
+    Effect.runPromise(parseHerdrAbsolutePath("/tmp/herdr\u0000.sock")),
+  ).rejects.toBeDefined();
+  await expect(Effect.runPromise(parseHerdrSessionName("main\u0000other"))).rejects.toBeDefined();
+});
+
 test("custom popup-size parser preserves a valid percentage", async () => {
   const popupSize = await Effect.runPromise(parseHerdrPopupSize("80%"));
 

@@ -65,4 +65,4 @@ const animatedProgressBeacon = Effect.gen(function* () {
   );
 });
 
-await runHerdrExample(animatedProgressBeacon);
+runHerdrExample(animatedProgressBeacon);

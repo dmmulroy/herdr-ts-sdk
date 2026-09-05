@@ -76,12 +76,15 @@ An operation has the ordinary Effect shape `Effect.Effect<Success, Error, Requir
 All service methods accept `HerdrTransportRequestOptionsEncoded` as their final optional argument:
 
 ```ts
-yield * herdr.server.ping({ requestTimeout: "2 seconds" });
+import { Duration } from "effect";
+
+yield * herdr.server.ping({ requestTimeout: Duration.seconds(2) });
 ```
 
-`requestTimeout` is the local SDK deadline. Server-owned waits have a separate `timeoutMs` in their
-input. When both apply, make the request deadline longer than the server wait so the server can
-return its typed result first.
+`requestTimeout` is the local SDK deadline and accepts an Effect `Duration`; duration strings are
+accepted only through the `HERDR_REQUEST_TIMEOUT` environment variable. Server-owned waits have a
+separate `timeoutMs` in their input. When both apply, make the request deadline longer than the
+server wait so the server can return its typed result first.
 
 ## Configuration
 

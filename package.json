@@ -23,7 +23,7 @@
     "access": "public"
   },
   "scripts": {
-    "generate": "node scripts/generate-wire-types.mjs && vp fmt schema scripts src/generated",
+    "generate": "node scripts/generate-wire-types.mjs && vp fmt src/generated",
     "build": "vp run generate && vp pack",
     "dev": "vp pack --watch",
     "test": "vp test",

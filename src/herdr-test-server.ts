@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import herdrApiSchema from "../schema/herdr-api.schema.json" with { type: "json" };
 import type { ErrorResponse } from "./generated/wire-error-response.ts";
@@ -112,10 +113,13 @@ function consumeRequest(
   respond: (request: HerdrTestRequest, socket: Socket) => HerdrTestResponse | HerdrRawTestResponse,
 ): void {
   let input = "";
-  socket.on("data", (chunk: Buffer) => {
-    input += chunk.toString("utf8");
+  const decoder = new StringDecoder("utf8");
+  const onData = (chunk: Buffer): void => {
+    input += decoder.write(chunk);
     const newline = input.indexOf("\n");
     if (newline < 0) return;
+    // One request owns each socket; subsequent bytes belong to the graphics protocol.
+    socket.off("data", onData);
     const parsed: unknown = JSON.parse(input.slice(0, newline));
     if (!requestParser(parsed) && !graphicsStreamRequestParser(parsed)) {
       socket.destroy(new Error("Test received a request outside the Herdr wire schema"));
@@ -127,7 +131,8 @@ function consumeRequest(
     socket.write(
       response instanceof HerdrRawTestResponse ? response.value : `${JSON.stringify(response)}\n`,
     );
-  });
+  };
+  socket.on("data", onData);
 }
 
 function closeServer(server: Server): Promise<void> {

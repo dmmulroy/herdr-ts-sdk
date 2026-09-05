@@ -42,4 +42,4 @@ const agentCodeReview = Effect.gen(function* () {
   });
 });
 
-await runHerdrExample(agentCodeReview);
+runHerdrExample(agentCodeReview);

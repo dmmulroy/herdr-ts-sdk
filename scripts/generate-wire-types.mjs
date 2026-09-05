@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { compile } from "json-schema-to-typescript";
 
 const schemaPath = new URL("../schema/herdr-api.schema.json", import.meta.url);
@@ -108,6 +108,8 @@ const responseTypes = new Set(
 );
 for (const resultType of Object.values(resultTypeByMethod))
   if (!responseTypes.has(resultType)) throw new Error(`Unknown wire result type: ${resultType}`);
+
+await mkdir(generatedDirectory, { recursive: true });
 
 for (const [schemaName, typeName, fileName] of [
   ["request", "WireRequest", "wire-request.ts"],

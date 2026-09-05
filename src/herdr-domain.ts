@@ -274,7 +274,11 @@ export const parseAgentName = Schema.decodeUnknownEffect(AgentName);
  * @since 0.8.2
  */
 export const HerdrAbsolutePath = Schema.String.check(
-  Schema.makeFilter((value) => (isAbsolute(value) ? undefined : "must be an absolute path")),
+  Schema.makeFilter((value) =>
+    isAbsolute(value) && !value.includes("\0")
+      ? undefined
+      : "must be an absolute path without NUL bytes",
+  ),
 ).pipe(Schema.brand("HerdrAbsolutePath"));
 
 /**
@@ -302,9 +306,13 @@ export const parseHerdrAbsolutePath = Schema.decodeUnknownEffect(HerdrAbsolutePa
 export const HerdrSessionName = Schema.String.check(
   Schema.isMinLength(1),
   Schema.makeFilter((value) =>
-    value !== "." && value !== ".." && !value.includes("/") && !value.includes("\\")
+    value !== "." &&
+    value !== ".." &&
+    !value.includes("/") &&
+    !value.includes("\\") &&
+    !value.includes("\0")
       ? undefined
-      : "must not be '.', '..', or contain path separators",
+      : "must not be '.', '..', or contain path separators or NUL bytes",
   ),
 ).pipe(Schema.brand("HerdrSessionName"));
 

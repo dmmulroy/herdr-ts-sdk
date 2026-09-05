@@ -9,6 +9,7 @@ import { Buffer } from "node:buffer";
 import {
   Context,
   Effect,
+  Exit,
   Layer,
   Option,
   Queue,
@@ -115,9 +116,6 @@ const parsePaneFocusDirectionInput = Schema.decodeUnknownEffect(PaneFocusDirecti
 const parsePaneFocusDirectionResult = Schema.decodeUnknownEffect(PaneFocusDirectionResult);
 const parsePaneGraphicsFrame = Schema.decodeUnknownEffect(PaneGraphicsFrame);
 const parsePaneGraphicsFileFrame = Schema.decodeUnknownEffect(PaneGraphicsFileFrame);
-const parsePaneGraphicsFrameAcknowledgement = Schema.decodeUnknownEffect(
-  PaneGraphicsFrameAcknowledgement,
-);
 const parsePaneGraphicsInfo = Schema.decodeUnknownEffect(PaneGraphicsInfo);
 const parsePaneGraphicsLayerInput = Schema.decodeUnknownEffect(PaneGraphicsLayerInput);
 const parsePaneGraphicsSetFrame = Schema.decodeUnknownEffect(PaneGraphicsSetFrame);
@@ -154,8 +152,7 @@ const PaneGraphicsStreamResponseEnvelope = Schema.Union([
     id: Schema.String,
     result: Schema.Struct({
       type: Schema.Literal("pane_graphics_frame_ack"),
-      sequence: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-      revision: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+      ...PaneGraphicsFrameAcknowledgement.fields,
     }),
   }),
   Schema.Struct({
@@ -195,7 +192,7 @@ export interface PaneGraphicsWriter {
     void,
     HerdrInvalidFrame | HerdrImageTooLarge | HerdrGraphicsStreamClosed | HerdrTransportRequestError
   >;
-  /** Submits one immutable direct-file frame and waits for Herdr's acknowledgement. */
+  /** Submits an immutable direct-file frame; the write deadline includes Herdr's acknowledgement. */
   readonly writeFile: (
     frame: PaneGraphicsFileFrameEncoded,
     options?: HerdrTransportRequestOptionsEncoded,
@@ -980,7 +977,13 @@ function makePaneGraphicsWriter(
       onNone: () => baseParameters,
       onSome: (zIndex) => ({ ...baseParameters, zIndex }),
     });
-    const stream = yield* transport.openStream("pane.graphics.stream", parameters, options);
+    const socketScope = yield* Scope.fork(yield* Scope.Scope);
+    const stream = yield* transport.openStream("pane.graphics.stream", parameters, options).pipe(
+      Scope.provide(socketScope),
+      Effect.onExit((exit) =>
+        Exit.isFailure(exit) ? Scope.close(socketScope, exit) : Effect.void,
+      ),
+    );
     const responses = yield* Queue.unbounded<PaneGraphicsStreamMessage>();
     const terminalFailure = yield* Ref.make<Option.Option<PaneGraphicsStreamFailure>>(
       Option.none(),
@@ -999,11 +1002,12 @@ function makePaneGraphicsWriter(
         onFailure: finishReader,
         onSuccess: () => finishReader(new HerdrGraphicsStreamClosed(stream.requestId)),
       }),
-      Effect.forkScoped,
+      Effect.forkIn(socketScope),
     );
 
-    yield* Effect.addFinalizer(() =>
-      Ref.set(terminalFailure, Option.some(new HerdrGraphicsStreamClosed(stream.requestId))),
+    yield* Scope.addFinalizer(
+      socketScope,
+      finishReader(new HerdrGraphicsStreamClosed(stream.requestId)),
     );
 
     const failIfClosed = Effect.gen(function* () {
@@ -1011,8 +1015,25 @@ function makePaneGraphicsWriter(
       if (Option.isSome(failure)) return yield* failure.value;
     });
 
-    const markClosedOnWriteFailure = () =>
-      Ref.set(terminalFailure, Option.some(new HerdrGraphicsStreamClosed(stream.requestId)));
+    const closeWriter = Effect.gen(function* () {
+      yield* Ref.set(terminalFailure, Option.some(new HerdrGraphicsStreamClosed(stream.requestId)));
+      yield* Scope.close(socketScope, Exit.void);
+    });
+
+    const closeOnWriteFailure = <A, E extends PaneGraphicsStreamFailure, R>(
+      effect: Effect.Effect<A, E, R>,
+    ) =>
+      effect.pipe(
+        Effect.onExit((exit) => {
+          if (Exit.isSuccess(exit)) return Effect.void;
+          // Invalid request options fail before writing bytes and leave the writer usable.
+          return exit.cause.reasons.every(
+            (reason) => reason._tag === "Fail" && reason.error._tag === "HerdrInvalidInput",
+          )
+            ? Effect.void
+            : closeWriter;
+        }),
+      );
 
     return {
       paneId,
@@ -1042,7 +1063,7 @@ function makePaneGraphicsWriter(
             ]);
             yield* transport
               .writeStreamBytes(stream, bytes, writeOptions)
-              .pipe(Effect.tapError(markClosedOnWriteFailure));
+              .pipe(closeOnWriteFailure);
           }),
         ),
       ),
@@ -1070,24 +1091,29 @@ function makePaneGraphicsWriter(
                   onSome: encodeGraphicsStreamPlacement,
                 }),
               };
-              yield* transport
-                .writeStreamBytes(stream, Buffer.from(JSON.stringify(header) + "\n"), writeOptions)
-                .pipe(Effect.tapError(markClosedOnWriteFailure));
-              const response = yield* Queue.take(responses);
-              if (response._tag === "Failure") return yield* response.error;
-              const expectedId = `${stream.requestId}:file:${parsed.sequence}`;
-              if (response.id !== expectedId || response.value.sequence !== parsed.sequence) {
-                return yield* new HerdrInvalidResponse(
-                  "correlation_mismatch",
-                  stream.requestId,
-                  new Error(`Herdr returned graphics acknowledgement ID ${response.id}`),
-                );
-              }
-              return yield* decodeHerdrWire(
-                parsePaneGraphicsFrameAcknowledgement,
-                response.value,
-                response.id,
-              );
+              // Once submitted, interruption or an invalid acknowledgement makes the frame
+              // outcome uncertain. Close before releasing the permit to prevent stale replies.
+              const acknowledgement = Effect.gen(function* () {
+                const response = yield* Queue.take(responses);
+                if (response._tag === "Failure") return yield* response.error;
+                const expectedId = `${stream.requestId}:file:${parsed.sequence}`;
+                if (response.id !== expectedId || response.value.sequence !== parsed.sequence) {
+                  return yield* new HerdrInvalidResponse(
+                    "correlation_mismatch",
+                    stream.requestId,
+                    new Error(`Herdr returned graphics acknowledgement ID ${response.id}`),
+                  );
+                }
+                return response.value;
+              });
+              return yield* transport
+                .writeStreamBytes(
+                  stream,
+                  Buffer.from(JSON.stringify(header) + "\n"),
+                  writeOptions,
+                  acknowledgement,
+                )
+                .pipe(closeOnWriteFailure);
             }),
           ),
       ),

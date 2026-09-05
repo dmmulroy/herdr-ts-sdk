@@ -21,4 +21,4 @@ const featureWorktree = Effect.gen(function* () {
   );
 });
 
-await runHerdrExample(featureWorktree);
+runHerdrExample(featureWorktree);

@@ -6,6 +6,7 @@
  * @since 0.8.2
  */
 import { Context, Effect, Layer, Option, Result, Schema, Stream } from "effect";
+import herdrApiSchema from "../schema/herdr-api.schema.json" with { type: "json" };
 import type { EventEnvelope } from "./generated/wire-event.ts";
 import type { SubscriptionEventEnvelope } from "./generated/wire-subscription-event.ts";
 import { parseHerdrWireEvent } from "./herdr-wire-parser.ts";
@@ -42,7 +43,16 @@ import {
 } from "./herdr-transport.ts";
 
 const MAX_EVENT_LINE_BYTES = 1024 * 1024;
+// Decode complete bounded lines; preserve BOMs so JSON parsing rejects them.
+const eventUtf8Decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const HerdrEventEnvelopeProbe = Schema.Struct({ event: Schema.String });
+const parseHerdrEventEnvelopeProbe = Schema.decodeUnknownOption(HerdrEventEnvelopeProbe);
+const parseHerdrEventResult = Schema.decodeUnknownResult(HerdrEvent);
+const lifecycleEventKinds = new Set(herdrApiSchema.schemas.event.$defs.EventKind.enum);
+const supportedEventKinds = new Set([
+  ...lifecycleEventKinds,
+  ...herdrApiSchema.schemas.subscription_event.$defs.SubscriptionEventKind.enum,
+]);
 const encodeEventSubscriptionSpec = Schema.encodeEffect(EventSubscriptionSpec);
 const parseEventMatch = Schema.decodeUnknownEffect(EventMatch);
 const parseEventSubscriptionSpec = Schema.decodeUnknownEffect(EventSubscriptionSpec);
@@ -177,7 +187,7 @@ function decodeEventLine(
   requestId: string,
 ): Result.Result<HerdrEventValue, HerdrInvalidResponse | HerdrUnsupportedEvent> {
   const parsedJson = Result.try({
-    try: () => JSON.parse(Buffer.from(bytes).toString("utf8")),
+    try: () => JSON.parse(eventUtf8Decoder.decode(bytes)),
     catch: (cause) => new HerdrInvalidResponse("malformed_json", requestId, cause),
   });
   if (Result.isFailure(parsedJson)) return parsedJson;
@@ -185,15 +195,27 @@ function decodeEventLine(
   const parsedEnvelope = Result.try({
     try: () => parseHerdrWireEvent(parsedJson.success, requestId),
     catch: (cause) => {
-      const probe = Schema.decodeUnknownOption(HerdrEventEnvelopeProbe)(parsedJson.success);
-      return Option.isSome(probe)
+      const probe = parseHerdrEventEnvelopeProbe(parsedJson.success);
+      return Option.isSome(probe) && !supportedEventKinds.has(probe.value.event)
         ? new HerdrUnsupportedEvent(probe.value.event, requestId)
         : new HerdrInvalidResponse("schema_mismatch", requestId, cause);
     },
   });
   if (Result.isFailure(parsedEnvelope)) return Result.fail(parsedEnvelope.failure);
 
-  return Schema.decodeUnknownResult(HerdrEvent)(eventDataWithType(parsedEnvelope.success)).pipe(
+  const envelope = parsedEnvelope.success;
+  // The wire schema validates these discriminants independently, not their agreement.
+  if (lifecycleEventKinds.has(envelope.event) && envelope.event !== envelope.data.type) {
+    return Result.fail(
+      new HerdrInvalidResponse(
+        "schema_mismatch",
+        requestId,
+        new Error("Herdr event envelope kind differs from its payload type"),
+      ),
+    );
+  }
+
+  return parseHerdrEventResult(eventDataWithType(envelope)).pipe(
     Result.mapError((cause) => new HerdrInvalidResponse("schema_mismatch", requestId, cause)),
   );
 }
@@ -262,21 +284,26 @@ function parseHerdrEventChunks<const Subscriptions extends readonly EventSubscri
       return [makeHerdrSocketLineBuffer(), decodedEvents];
     }
 
-    const split = splitHerdrSocketLines(state, [input.value], MAX_EVENT_LINE_BYTES, requestId);
-    if (Result.isFailure(split)) {
-      decodedEvents.push(Result.fail(split.failure));
-      return [makeHerdrSocketLineBuffer(), decodedEvents];
-    }
-    state = split.success.buffer;
-    for (const line of split.success.lines) {
-      if (line.length === 0) continue;
-      const decoded = decodeEventLine(line, requestId);
-      if (Result.isFailure(decoded)) {
-        decodedEvents.push(Result.fail(decoded.failure));
+    let remaining: readonly Uint8Array[] = [input.value];
+    while (remaining.length > 0) {
+      // Preserve the valid prefix even when a later line in this read exceeds the limit.
+      const split = splitHerdrSocketLines(state, remaining, MAX_EVENT_LINE_BYTES, requestId, 1);
+      if (Result.isFailure(split)) {
+        decodedEvents.push(Result.fail(split.failure));
         return [makeHerdrSocketLineBuffer(), decodedEvents];
       }
-      if (isEventForSubscriptions(decoded.success, subscriptions)) {
-        decodedEvents.push(Result.succeed(decoded.success));
+      state = split.success.buffer;
+      remaining = split.success.remainder;
+      for (const line of split.success.lines) {
+        if (line.length === 0) continue;
+        const decoded = decodeEventLine(line, requestId);
+        if (Result.isFailure(decoded)) {
+          decodedEvents.push(Result.fail(decoded.failure));
+          return [makeHerdrSocketLineBuffer(), decodedEvents];
+        }
+        if (isEventForSubscriptions(decoded.success, subscriptions)) {
+          decodedEvents.push(Result.succeed(decoded.success));
+        }
       }
     }
   }

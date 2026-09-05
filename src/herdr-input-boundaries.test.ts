@@ -6,6 +6,93 @@ import { HerdrSdk, herdrSdkLayerFromOptions } from "./herdr-sdk.ts";
 import { startHerdrTestServer } from "./herdr-test-server.ts";
 import { makeHerdrSuccessResponse } from "./herdr-wire-fixtures.ts";
 
+test("plugin invocation accepts camel-case worktrees and preserves omitted context fields", async () => {
+  const server = await startHerdrTestServer((request) => makeHerdrSuccessResponse(request));
+  try {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const herdr = yield* HerdrSdk;
+        const actionId = herdr.ids.pluginAction("action-1");
+        yield* herdr.plugins.actions.invoke(actionId, {
+          context: {
+            worktree: {
+              repoKey: "repo-1",
+              repoName: "project",
+              repoRoot: "/tmp/project",
+              checkoutPath: "/tmp/project-feature",
+              isLinkedWorktree: true,
+            },
+          },
+        });
+        yield* herdr.plugins.actions.invoke(actionId, { context: {} });
+      }).pipe(
+        Effect.provide(
+          herdrSdkLayerFromOptions({
+            socketPath: HerdrAbsolutePath.make(server.socketPath),
+          }),
+        ),
+      ),
+    );
+    const invocations = server.requests.filter(
+      (request) => request.method === "plugin.action.invoke",
+    );
+    expect(invocations[0]?.params.context?.worktree).toEqual({
+      repo_key: "repo-1",
+      repo_name: "project",
+      repo_root: "/tmp/project",
+      checkout_path: "/tmp/project-feature",
+      is_linked_worktree: true,
+    });
+    expect(invocations[1]?.params.context?.worktree).toBeNull();
+  } finally {
+    await server.close();
+  }
+});
+
+test("agent-view numeric filters preserve unsigned integers and reject invalid wire values", async () => {
+  const server = await startHerdrTestServer((request) => makeHerdrSuccessResponse(request));
+
+  try {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const herdr = yield* HerdrSdk;
+        for (const value of [-1, 0.5]) {
+          const failure = yield* herdr.agents.view
+            .set({
+              source: "schema-regression",
+              filter: { op: "eq", field: "state_change_seq", value },
+            })
+            .pipe(Effect.flip);
+          expect(failure).toBeInstanceOf(HerdrInvalidInput);
+        }
+        expect(server.requests).toEqual([]);
+        yield* herdr.agents.view.set({
+          source: "schema-regression",
+          filter: {
+            op: "not",
+            filter: { op: "in", field: "state_change_seq", values: [0, 42] },
+          },
+        });
+      }).pipe(
+        Effect.provide(
+          herdrSdkLayerFromOptions({
+            socketPath: HerdrAbsolutePath.make(server.socketPath),
+          }),
+        ),
+      ),
+    );
+    expect(server.requests.find((request) => request.method === "agent.view.set")?.params).toEqual({
+      source: "schema-regression",
+      filter: {
+        op: "not",
+        filter: { op: "in", field: "state_change_seq", values: [0, 42] },
+      },
+    });
+  } finally {
+    await server.close();
+  }
+});
+
 test("encoded layout targets and pane ratios are parsed before transport", async () => {
   const server = await startHerdrTestServer((request) => makeHerdrSuccessResponse(request));
 

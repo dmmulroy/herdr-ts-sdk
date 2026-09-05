@@ -312,6 +312,50 @@ test("event subscriptions decode UTF-8 characters fragmented across socket reads
   }
 });
 
+test.each(["invalid UTF-8", "UTF-8 BOM"])(
+  "event subscriptions reject %s instead of normalizing the wire bytes",
+  async (encoding) => {
+    const subscriptionClosed = Deferred.makeUnsafe<void>();
+    const server = await startHerdrTestServer((request, socket) => {
+      const response = makeHerdrSuccessResponse(request);
+      if (request.method !== "events.subscribe") return response;
+      const eventBytes = Buffer.from(
+        `${JSON.stringify({
+          event: "workspace_created",
+          data: { type: "workspace_created", workspace: { ...workspace, label: "!" } },
+        })}\n`,
+      );
+      if (encoding === "invalid UTF-8") eventBytes[eventBytes.indexOf("!")] = 0xff;
+      socket.once("close", () => Effect.runSync(Deferred.succeed(subscriptionClosed, undefined)));
+      socket.write(
+        Buffer.concat([
+          Buffer.from(`${JSON.stringify(response)}\n`),
+          encoding === "UTF-8 BOM" ? Buffer.from([0xef, 0xbb, 0xbf]) : Buffer.alloc(0),
+          eventBytes,
+        ]),
+      );
+      return new HerdrRawTestResponse("");
+    });
+
+    try {
+      const failure = await runWithSdk(
+        server.socketPath,
+        Effect.gen(function* () {
+          const herdr = yield* HerdrSdk;
+          return yield* herdr.events
+            .subscribe([{ type: "workspace.created" }] as const)
+            .pipe(Stream.runHead, Effect.flip);
+        }),
+      );
+      expect(failure).toMatchObject({ _tag: "HerdrInvalidResponse", reason: "malformed_json" });
+      await Effect.runPromise(Deferred.await(subscriptionClosed));
+      expect(server.openSocketMethods()).not.toContain("events.subscribe");
+    } finally {
+      await server.close();
+    }
+  },
+);
+
 test("event wait preserves an unknown server discriminant as a typed failure", async () => {
   const server = await startHerdrTestServer((request) => {
     if (request.method !== "events.wait") return makeHerdrSuccessResponse(request);
@@ -336,6 +380,163 @@ test("event wait preserves an unknown server discriminant as a typed failure", a
     );
     expect(failure).toBeInstanceOf(HerdrUnsupportedEvent);
     expect(failure).toMatchObject({ eventType: "pane.future_state" });
+  } finally {
+    await server.close();
+  }
+});
+
+test("reusing a cold subscription opens independent sockets without replaying prior events", async () => {
+  let subscriptionCount = 0;
+  const server = await startHerdrTestServer((request) => {
+    const response = makeHerdrSuccessResponse(request);
+    if (request.method !== "events.subscribe") return response;
+    subscriptionCount += 1;
+    return new HerdrRawTestResponse(
+      `${JSON.stringify(response)}\n${JSON.stringify({
+        event: "workspace_created",
+        data: {
+          type: "workspace_created",
+          workspace: { ...workspace, label: `Subscription ${subscriptionCount}` },
+        },
+      })}\n`,
+    );
+  });
+
+  try {
+    const events = await runWithSdk(
+      server.socketPath,
+      Effect.gen(function* () {
+        const herdr = yield* HerdrSdk;
+        const subscription = herdr.events.subscribe([{ type: "workspace.created" }] as const);
+        expect(subscriptionCount).toBe(0);
+        const first = yield* Stream.runHead(subscription);
+        const next = yield* Effect.all(
+          [Stream.runHead(subscription), Stream.runHead(subscription)],
+          { concurrency: "unbounded" },
+        );
+        return [first, ...next];
+      }),
+    );
+    expect(subscriptionCount).toBe(3);
+    expect(
+      events
+        .map((event) => (event._tag === "Some" ? event.value.workspace.label : "missing"))
+        .sort(),
+    ).toEqual(["Subscription 1", "Subscription 2", "Subscription 3"]);
+  } finally {
+    await server.close();
+  }
+});
+
+test.each([
+  { suffix: "{bad", reason: "malformed_json" },
+  { suffix: "x".repeat(1024 * 1024 + 1), reason: "oversized_frame" },
+])("event subscriptions deliver the valid prefix before $reason", async ({ suffix, reason }) => {
+  const server = await startHerdrTestServer((request) => {
+    const response = makeHerdrSuccessResponse(request);
+    if (request.method !== "events.subscribe") return response;
+    return new HerdrRawTestResponse(
+      [
+        JSON.stringify(response),
+        ...["First", "Second"].map((label) =>
+          JSON.stringify({
+            event: "workspace_created",
+            data: { type: "workspace_created", workspace: { ...workspace, label } },
+          }),
+        ),
+        suffix,
+        "",
+      ].join("\n"),
+    );
+  });
+
+  try {
+    const labels: string[] = [];
+    const failure = await runWithSdk(
+      server.socketPath,
+      Effect.gen(function* () {
+        const herdr = yield* HerdrSdk;
+        return yield* herdr.events.subscribe([{ type: "workspace.created" }] as const).pipe(
+          Stream.runForEach((event) =>
+            Effect.sync(() => {
+              labels.push(event.workspace.label);
+            }),
+          ),
+          Effect.flip,
+        );
+      }),
+    );
+    expect(labels).toEqual(["First", "Second"]);
+    expect(failure).toMatchObject({ _tag: "HerdrInvalidResponse", reason });
+  } finally {
+    await server.close();
+  }
+});
+
+test("interrupting an accepted idle subscription closes its socket before the SDK scope ends", async () => {
+  const accepted = Deferred.makeUnsafe<void>();
+  const closed = Deferred.makeUnsafe<void>();
+  const server = await startHerdrTestServer((request, socket) => {
+    if (request.method === "events.subscribe") {
+      socket.once("close", () => Effect.runSync(Deferred.succeed(closed, undefined)));
+      socket.write(`${JSON.stringify(makeHerdrSuccessResponse(request))}\n`, () =>
+        Effect.runSync(Deferred.succeed(accepted, undefined)),
+      );
+      return new HerdrRawTestResponse("");
+    }
+    return makeHerdrSuccessResponse(request);
+  });
+
+  try {
+    await runWithSdk(
+      server.socketPath,
+      Effect.gen(function* () {
+        const herdr = yield* HerdrSdk;
+        const fiber = yield* herdr.events
+          .subscribe([{ type: "workspace.created" }] as const)
+          .pipe(Stream.runDrain, Effect.forkChild);
+        yield* Deferred.await(accepted);
+        yield* Fiber.interrupt(fiber);
+        yield* Deferred.await(closed);
+        expect(server.openSocketMethods()).not.toContain("events.subscribe");
+      }),
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test.each([
+  { event: "workspace_created", data: {} },
+  { event: "pane.scroll_changed", data: {} },
+  { event: "workspace_created", data: { type: "workspace_updated", workspace } },
+])("event subscriptions reject malformed known envelopes: $event", async (envelope) => {
+  const subscriptionClosed = Deferred.makeUnsafe<void>();
+  const server = await startHerdrTestServer((request, socket) => {
+    const response = makeHerdrSuccessResponse(request);
+    if (request.method !== "events.subscribe") return response;
+    socket.once("close", () => Effect.runSync(Deferred.succeed(subscriptionClosed, undefined)));
+    return new HerdrRawTestResponse(`${JSON.stringify(response)}\n${JSON.stringify(envelope)}\n`);
+  });
+
+  try {
+    const failure = await runWithSdk(
+      server.socketPath,
+      Effect.gen(function* () {
+        const herdr = yield* HerdrSdk;
+        return yield* herdr.events
+          .subscribe([
+            { type: "workspace.created" },
+            { type: "workspace.updated" },
+            { type: "pane.scroll_changed", paneId: "pane-1" },
+          ])
+          .pipe(Stream.runHead, Effect.flip);
+      }),
+    );
+    expect(failure).toBeInstanceOf(HerdrInvalidResponse);
+    expect(failure).toMatchObject({ reason: "schema_mismatch" });
+    await Effect.runPromise(Deferred.await(subscriptionClosed));
+    expect(server.openSocketMethods()).not.toContain("events.subscribe");
   } finally {
     await server.close();
   }

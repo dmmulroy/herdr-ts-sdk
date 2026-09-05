@@ -44,4 +44,4 @@ const blockedAgentRescue = Effect.gen(function* () {
   });
 });
 
-await runHerdrExample(blockedAgentRescue);
+runHerdrExample(blockedAgentRescue);

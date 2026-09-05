@@ -29,8 +29,16 @@ function findAttachedJsdoc(lines, declarationLine) {
   if (cursor < 0 || !lines[cursor].trim().endsWith("*/")) return undefined;
 
   const end = cursor;
-  while (cursor >= 0 && !lines[cursor].trim().startsWith("/**")) cursor -= 1;
-  return cursor < 0 ? undefined : lines.slice(cursor, end + 1).join("\n");
+  while (cursor >= 0) {
+    const line = lines[cursor].trim();
+    // Stop at the nearest block comment: an ordinary comment cannot borrow an older JSDoc.
+    if (line.includes("/*")) {
+      return line.startsWith("/**") ? lines.slice(cursor, end + 1).join("\n") : undefined;
+    }
+    if (cursor !== end && line.includes("*/")) return undefined;
+    cursor -= 1;
+  }
+  return undefined;
 }
 
 function countTag(jsdoc, tag) {
@@ -48,7 +56,13 @@ for (const file of sourceFiles) {
   }
 
   for (let index = 0; index < lines.length; index += 1) {
-    if (!/^export (?:const|type|interface|class|function)\b/.test(lines[index])) continue;
+    // A type alias has an identifier; `export type { ... }` and `export type *` are re-exports.
+    if (
+      !/^export (?:default )?(?:declare )?(?:async )?(?:abstract )?(?:const|let|var|type(?=\s+[$_\p{ID_Start}])|interface|class|function|enum)\b/u.test(
+        lines[index],
+      )
+    )
+      continue;
 
     exportCount += 1;
     const jsdoc = findAttachedJsdoc(lines, index);

@@ -30,4 +30,4 @@ const sessionInventory = Effect.gen(function* () {
   );
 });
 
-await runHerdrExample(sessionInventory);
+runHerdrExample(sessionInventory);

@@ -90,4 +90,4 @@ const multiAgentIdeaLab = Effect.gen(function* () {
   });
 });
 
-await runHerdrExample(multiAgentIdeaLab);
+runHerdrExample(multiAgentIdeaLab);
