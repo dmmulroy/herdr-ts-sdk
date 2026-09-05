@@ -15,7 +15,7 @@ const agentCodeReview = Effect.gen(function* () {
 
   yield* herdr.agents.start({
     name: reviewerName,
-    kind: "codex",
+    kind: "pi",
     paneId: reviewerPane.id,
     timeoutMs: Duration.toMillis(Duration.minutes(2)),
   });
