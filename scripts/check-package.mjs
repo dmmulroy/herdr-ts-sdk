@@ -7,7 +7,7 @@ import {
 } from "./sdk-verification-process.mjs";
 import { symlink } from "node:fs";
 import { createRequire } from "node:module";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -106,18 +106,22 @@ export function checkPackedPackage({ root = repositoryRoot, runtimeNode = proces
       ],
       stage,
     );
-    const tarball = join(
-      temporaryDirectory,
-      `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`,
-    );
+    const tarball = `${manifest.name.replace(/^@/, "").replaceAll("/", "-")}-${manifest.version}.tgz`;
     const installed = join(consumer, "node_modules", manifest.name);
     yield* fs.makeDirectory(installed, { recursive: true });
-    // Extract the actual npm tarball, not dist or a source link. No registry resolution is attempted.
+    // GNU tar treats C: in an archive name as a remote host. Relative paths work
+    // with both Windows Git tar and BSD tar; still extract the actual npm tarball.
     yield* runPackageCommand(
       "package.extract",
       "tar",
-      ["-xzf", tarball, "--strip-components=1", "-C", installed],
-      consumer,
+      [
+        "-xzf",
+        tarball,
+        "--strip-components=1",
+        "-C",
+        relative(temporaryDirectory, installed).split(sep).join("/"),
+      ],
+      temporaryDirectory,
     );
     for (const dependency of [...Object.keys(manifest.dependencies), "@types/node"]) {
       const target = join(consumer, "node_modules", dependency);

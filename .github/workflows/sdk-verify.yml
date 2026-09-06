@@ -3,6 +3,12 @@ name: SDK verification
 on:
   push:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      evidence:
+        description: Upload fixture-only review evidence (no live Herdr or recording)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,7 +37,27 @@ jobs:
           version: ${{ steps.package-manager.outputs.version }}
           run_install: false
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run verify
+      - name: Full verification
+        shell: bash
+        run: pnpm run verify 2>&1 | tee "$RUNNER_TEMP/sdk-verification.log"
+      # Upload is explicitly requested through workflow_dispatch, never on ordinary PR/push runs.
+      - name: Collect requested fixture evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.evidence && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdk-review-evidence"
+          cp "$RUNNER_TEMP/sdk-verification.log" "$RUNNER_TEMP/sdk-review-evidence/verification.log"
+          for recipe in scoped-subscription graphics-writer request-wire-result; do
+            node scripts/sdk-evidence.mjs run "$recipe" --out "$RUNNER_TEMP/sdk-review-evidence" --json > "$RUNNER_TEMP/sdk-review-evidence/$recipe.json"
+          done
+      - name: Upload requested fixture evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.evidence && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-review-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/sdk-review-evidence
+          if-no-files-found: error
+          retention-days: 30
 
   package-platform:
     name: Packed Node ${{ matrix.runtime }} (${{ matrix.os }})
