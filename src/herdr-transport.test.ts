@@ -1,7 +1,7 @@
 import { Deferred, Duration, Effect, Fiber, Option, Schema, Stream, type Scope } from "effect";
 import { expect, test, type TestContext } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
-import { HerdrConfig, HerdrProtocolVersion } from "./herdr-config.ts";
+import { HerdrConfig, HerdrProtocolVersion, HerdrRequestDeadline } from "./herdr-config.ts";
 import { parseHerdrAbsolutePath } from "./herdr-domain.ts";
 import {
   HerdrInvalidResponse,
@@ -606,7 +606,7 @@ function withTransport<A, E, R>(
         HerdrConfig.of({
           socketPath: absolutePath,
           session: Option.none(),
-          requestTimeout: Duration.seconds(1),
+          requestTimeout: HerdrRequestDeadline.make(Duration.seconds(1)),
           application: Option.none(),
           supportedProtocol,
         }),

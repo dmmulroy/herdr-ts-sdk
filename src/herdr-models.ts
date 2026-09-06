@@ -5,7 +5,7 @@
  *
  * @since 0.8.2
  */
-import { Effect, Option, Schema, SchemaGetter } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   AgentName,
   HerdrAbsolutePath,
@@ -137,7 +137,7 @@ export interface ServerCapabilities extends Schema.Schema.Type<typeof ServerCapa
  */
 export const PingResult = Schema.Struct({
   version: Schema.String,
-  protocol: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  protocol: Schema.Natural,
   capabilities: Schema.OptionFromOptionalNullOr(ServerCapabilities),
 });
 
@@ -310,11 +310,11 @@ export interface WorkspaceWorktree extends Schema.Schema.Type<typeof WorkspaceWo
  */
 export const Workspace = Schema.Struct({
   id: WorkspaceId,
-  number: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  number: Schema.Natural,
   label: Schema.String,
   focused: Schema.Boolean,
-  paneCount: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  tabCount: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  paneCount: Schema.Natural,
+  tabCount: Schema.Natural,
   activeTabId: TabId,
   agentStatus: AgentStatus,
   tokens: Schema.optionalKey(HerdrMetadataTokens).pipe(
@@ -348,10 +348,10 @@ export interface Workspace extends Schema.Schema.Type<typeof Workspace> {}
 export const Tab = Schema.Struct({
   id: TabId,
   workspaceId: WorkspaceId,
-  number: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  number: Schema.Natural,
   label: Schema.String,
   focused: Schema.Boolean,
-  paneCount: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  paneCount: Schema.Natural,
   agentStatus: AgentStatus,
 }).pipe(
   Schema.encodeKeys({
@@ -379,7 +379,7 @@ export interface Tab extends Schema.Schema.Type<typeof Tab> {}
 export const PaneScroll = Schema.Struct({
   offsetFromBottom: Schema.Finite,
   maxOffsetFromBottom: Schema.Finite,
-  viewportRows: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  viewportRows: Schema.Natural,
 }).pipe(
   Schema.encodeKeys({
     offsetFromBottom: "offset_from_bottom",
@@ -671,9 +671,7 @@ export interface WorkspaceMoveBlockInputEncoded extends Schema.Codec.Encoded<
  */
 export const ServerLiveHandoffInput = Schema.Struct({
   importExe: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
-  expectedProtocol: Schema.OptionFromOptionalKey(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ),
+  expectedProtocol: Schema.OptionFromOptionalKey(Schema.Natural),
   expectedVersion: Schema.OptionFromOptionalKey(Schema.String),
 });
 
@@ -933,6 +931,20 @@ export const WorktreeRemoveResult = Schema.Struct({
  */
 export interface WorktreeRemoveResult extends Schema.Schema.Type<typeof WorktreeRemoveResult> {}
 
+type WorktreeSourceSelection =
+  | {
+      readonly workspaceId: Option.None<WorkspaceId>;
+      readonly cwd: Option.Option<HerdrAbsolutePath>;
+    }
+  | {
+      readonly workspaceId: Option.Some<WorkspaceId>;
+      readonly cwd: Option.None<HerdrAbsolutePath>;
+    };
+
+type WorktreeOpenSelection =
+  | { readonly path: Option.Some<HerdrAbsolutePath>; readonly branch: Option.None<string> }
+  | { readonly path: Option.None<HerdrAbsolutePath>; readonly branch: Option.Some<string> };
+
 const WorktreeSourceInputFields = {
   workspaceId: Schema.OptionFromOptionalKey(WorkspaceId),
   cwd: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
@@ -945,11 +957,11 @@ const WorktreeSourceInputFields = {
  * @category schemas
  * @since 0.8.2
  */
-export const WorktreeListInput = Schema.Struct(WorktreeSourceInputFields).check(
-  Schema.makeFilter((value) =>
-    Option.isSome(value.workspaceId) && Option.isSome(value.cwd)
-      ? "workspaceId and cwd are mutually exclusive"
-      : undefined,
+export const WorktreeListInput = Schema.Struct(WorktreeSourceInputFields).pipe(
+  Schema.refine(
+    (value): value is typeof value & WorktreeSourceSelection =>
+      Option.isNone(value.workspaceId) || Option.isNone(value.cwd),
+    { expected: "workspaceId and cwd are mutually exclusive" },
   ),
 );
 
@@ -959,7 +971,7 @@ export const WorktreeListInput = Schema.Struct(WorktreeSourceInputFields).check(
  * @category models
  * @since 0.8.2
  */
-export interface WorktreeListInput extends Schema.Schema.Type<typeof WorktreeListInput> {}
+export type WorktreeListInput = typeof WorktreeListInput.Type;
 
 /**
  * Ergonomic worktree-list source selection.
@@ -982,11 +994,11 @@ export const WorktreeCreateInput = Schema.Struct({
   path: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
   label: Schema.OptionFromOptionalKey(Schema.String),
   focus: Schema.OptionFromOptionalKey(Schema.Boolean),
-}).check(
-  Schema.makeFilter((value) =>
-    Option.isSome(value.workspaceId) && Option.isSome(value.cwd)
-      ? "workspaceId and cwd are mutually exclusive"
-      : undefined,
+}).pipe(
+  Schema.refine(
+    (value): value is typeof value & WorktreeSourceSelection =>
+      Option.isNone(value.workspaceId) || Option.isNone(value.cwd),
+    { expected: "workspaceId and cwd are mutually exclusive" },
   ),
 );
 
@@ -996,7 +1008,7 @@ export const WorktreeCreateInput = Schema.Struct({
  * @category models
  * @since 0.8.2
  */
-export interface WorktreeCreateInput extends Schema.Schema.Type<typeof WorktreeCreateInput> {}
+export type WorktreeCreateInput = typeof WorktreeCreateInput.Type;
 
 /**
  * Ergonomic worktree-creation parameters.
@@ -1020,15 +1032,17 @@ export const WorktreeOpenInput = Schema.Struct({
   branch: Schema.OptionFromOptionalKey(Schema.String),
   label: Schema.OptionFromOptionalKey(Schema.String),
   focus: Schema.OptionFromOptionalKey(Schema.Boolean),
-}).check(
-  Schema.makeFilter((value) => {
-    if (Option.isSome(value.workspaceId) && Option.isSome(value.cwd)) {
-      return "workspaceId and cwd are mutually exclusive";
-    }
-    return Option.isSome(value.path) === Option.isSome(value.branch)
-      ? "exactly one of path or branch is required"
-      : undefined;
-  }),
+}).pipe(
+  Schema.refine(
+    (value): value is typeof value & WorktreeSourceSelection =>
+      Option.isNone(value.workspaceId) || Option.isNone(value.cwd),
+    { expected: "workspaceId and cwd are mutually exclusive" },
+  ),
+  Schema.refine(
+    (value): value is typeof value & WorktreeOpenSelection =>
+      Option.isSome(value.path) !== Option.isSome(value.branch),
+    { expected: "exactly one of path or branch is required" },
+  ),
 );
 
 /**
@@ -1037,7 +1051,7 @@ export const WorktreeOpenInput = Schema.Struct({
  * @category models
  * @since 0.8.2
  */
-export interface WorktreeOpenInput extends Schema.Schema.Type<typeof WorktreeOpenInput> {}
+export type WorktreeOpenInput = typeof WorktreeOpenInput.Type;
 
 /**
  * Ergonomic worktree-open parameters.
@@ -1482,7 +1496,7 @@ export interface PaneZoomResult extends Schema.Schema.Type<typeof PaneZoomResult
  * @since 0.8.2
  */
 export const PaneProcess = Schema.Struct({
-  pid: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  pid: Schema.Natural,
   name: Schema.String,
   argv0: optionalString,
   argv: Schema.OptionFromOptionalNullOr(Schema.Array(Schema.String)),
@@ -1506,12 +1520,8 @@ export interface PaneProcess extends Schema.Schema.Type<typeof PaneProcess> {}
  */
 export const PaneProcessInfo = Schema.Struct({
   paneId: PaneId,
-  shellPid: Schema.OptionFromOptionalNullOr(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ),
-  foregroundProcessGroupId: Schema.OptionFromOptionalNullOr(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ),
+  shellPid: Schema.OptionFromOptionalNullOr(Schema.Natural),
+  foregroundProcessGroupId: Schema.OptionFromOptionalNullOr(Schema.Natural),
   tty: optionalString,
   foregroundProcesses: Schema.optionalKey(Schema.Array(PaneProcess)).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([]), { encodingStrategy: "omit" }),
@@ -1668,18 +1678,14 @@ export const PaneGraphicsInfo = Schema.Struct({
   fileFrameFormats: Schema.optionalKey(Schema.Array(PaneGraphicsFileFormat)).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([]), { encodingStrategy: "omit" }),
   ),
-  fileFrameMaxBytes: Schema.OptionFromOptionalNullOr(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ),
-  fileFrameDirectMaxBytes: Schema.OptionFromOptionalNullOr(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ),
+  fileFrameMaxBytes: Schema.OptionFromOptionalNullOr(Schema.Natural),
+  fileFrameDirectMaxBytes: Schema.OptionFromOptionalNullOr(Schema.Natural),
   fileFrameDamage: Schema.optionalKey(Schema.Boolean).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(false), { encodingStrategy: "omit" }),
   ),
-  maxLayersPerPane: Schema.optionalKey(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ).pipe(Schema.withDecodingDefaultKey(Effect.succeed(0), { encodingStrategy: "omit" })),
+  maxLayersPerPane: Schema.optionalKey(Schema.Natural).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0), { encodingStrategy: "omit" }),
+  ),
   pixelMouse: Schema.optionalKey(Schema.Boolean).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(false), { encodingStrategy: "omit" }),
   ),
@@ -1794,10 +1800,14 @@ export const PaneSwapInput = Schema.Union([
   Schema.Struct({
     paneId: Schema.OptionFromOptionalKey(PaneId),
     direction: PaneDirection,
+    sourcePaneId: Schema.optionalKey(Schema.Never),
+    targetPaneId: Schema.optionalKey(Schema.Never),
   }),
   Schema.Struct({
     sourcePaneId: PaneId,
     targetPaneId: PaneId,
+    paneId: Schema.optionalKey(Schema.Never),
+    direction: Schema.optionalKey(Schema.Never),
   }),
 ]);
 
@@ -2005,7 +2015,7 @@ export interface PaneCurrentInputEncoded extends Schema.Codec.Encoded<typeof Pan
  */
 export const PaneReadInput = Schema.Struct({
   source: PaneReadSource,
-  lines: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt(), Schema.isGreaterThan(0))),
+  lines: Schema.OptionFromOptionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
   format: Schema.OptionFromOptionalKey(PaneReadFormat),
   stripAnsi: Schema.OptionFromOptionalKey(Schema.Boolean),
 });
@@ -2110,8 +2120,18 @@ export interface PaneWaitForOutputInputEncoded extends Schema.Codec.Encoded<
   typeof PaneWaitForOutputInput
 > {}
 
+type PaneAgentSessionSelection =
+  | {
+      readonly sessionId: Option.None<string>;
+      readonly sessionPath: Option.Option<HerdrAbsolutePath>;
+    }
+  | {
+      readonly sessionId: Option.Some<string>;
+      readonly sessionPath: Option.None<HerdrAbsolutePath>;
+    };
+
 /**
- * Agent-state report attached to one pane.
+ * Agent-state report attached to one pane; select its native session by at most one ID or path.
  *
  * @category schemas
  * @since 0.8.2
@@ -2124,11 +2144,11 @@ export const PaneAgentReportInput = Schema.Struct({
   sequence: Schema.OptionFromOptionalKey(HerdrStateChangeSequence),
   sessionId: Schema.OptionFromOptionalKey(Schema.String),
   sessionPath: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
-}).check(
-  Schema.makeFilter((value) =>
-    Option.isSome(value.sessionId) && Option.isSome(value.sessionPath)
-      ? "sessionId and sessionPath are mutually exclusive"
-      : undefined,
+}).pipe(
+  Schema.refine(
+    (value): value is typeof value & PaneAgentSessionSelection =>
+      Option.isNone(value.sessionId) || Option.isNone(value.sessionPath),
+    { expected: "sessionId and sessionPath are mutually exclusive" },
   ),
 );
 
@@ -2138,7 +2158,7 @@ export const PaneAgentReportInput = Schema.Struct({
  * @category models
  * @since 0.8.2
  */
-export interface PaneAgentReportInput extends Schema.Schema.Type<typeof PaneAgentReportInput> {}
+export type PaneAgentReportInput = typeof PaneAgentReportInput.Type;
 
 /**
  * Ergonomic agent-state report.
@@ -2163,11 +2183,11 @@ export const PaneAgentSessionReportInput = Schema.Struct({
   sessionStartSource: Schema.OptionFromOptionalKey(Schema.String),
   sessionId: Schema.OptionFromOptionalKey(Schema.String),
   sessionPath: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
-}).check(
-  Schema.makeFilter((value) =>
-    Option.isSome(value.sessionId) && Option.isSome(value.sessionPath)
-      ? "sessionId and sessionPath are mutually exclusive"
-      : undefined,
+}).pipe(
+  Schema.refine(
+    (value): value is typeof value & PaneAgentSessionSelection =>
+      Option.isNone(value.sessionId) || Option.isNone(value.sessionPath),
+    { expected: "sessionId and sessionPath are mutually exclusive" },
   ),
 );
 
@@ -2177,9 +2197,7 @@ export const PaneAgentSessionReportInput = Schema.Struct({
  * @category models
  * @since 0.8.2
  */
-export interface PaneAgentSessionReportInput extends Schema.Schema.Type<
-  typeof PaneAgentSessionReportInput
-> {}
+export type PaneAgentSessionReportInput = typeof PaneAgentSessionReportInput.Type;
 
 /**
  * Ergonomic agent-session report.
@@ -2192,7 +2210,9 @@ export interface PaneAgentSessionReportInputEncoded extends Schema.Codec.Encoded
 > {}
 
 /**
- * Metadata patch reported for one pane.
+ * Pane presentation report with sparse known-status labels and individually patched tokens.
+ * Ordinary reports replace this source's title, displayed agent name, and label table;
+ * use agent-state reports, not these display labels, to drive lifecycle waits.
  *
  * @category schemas
  * @since 0.8.2
@@ -2203,7 +2223,11 @@ export const PaneMetadataReportInput = Schema.Struct({
   appliesToSource: Schema.OptionFromOptionalKey(Schema.String),
   title: Schema.OptionFromOptionalKey(Schema.String),
   displayAgent: Schema.OptionFromOptionalKey(Schema.String),
-  stateLabels: Schema.OptionFromOptionalKey(Schema.Record(AgentStatus, Schema.String)),
+  stateLabels: Schema.OptionFromOptionalKey(
+    Schema.Record(AgentStatus, Schema.optionalKey(Schema.String)).annotate({
+      parseOptions: { onExcessProperty: "error" },
+    }),
+  ),
   tokens: Schema.OptionFromOptionalKey(HerdrMetadataTokenPatch),
   clearTitle: Schema.OptionFromOptionalKey(Schema.Boolean),
   clearDisplayAgent: Schema.OptionFromOptionalKey(Schema.Boolean),
@@ -2300,12 +2324,8 @@ export interface PaneReleaseAgentInputEncoded extends Schema.Codec.Encoded<
  * @since 0.8.2
  */
 export const PaneGraphicsPlacement = Schema.Struct({
-  viewportCol: Schema.OptionFromOptionalKey(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ),
-  viewportRow: Schema.OptionFromOptionalKey(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  ),
+  viewportCol: Schema.OptionFromOptionalKey(Schema.Natural),
+  viewportRow: Schema.OptionFromOptionalKey(Schema.Natural),
   gridCols: Schema.OptionFromOptionalKey(
     Schema.Finite.check(Schema.isInt(), Schema.isGreaterThan(0)),
   ),
@@ -2452,8 +2472,8 @@ export const PaneGraphicsFileFrame = Schema.Struct({
   imageWidth: HerdrImageDimension,
   imageHeight: HerdrImageDimension,
   filePath: HerdrAbsolutePath,
-  sequence: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  revision: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  sequence: Schema.Natural,
+  revision: Schema.Natural,
   placement: Schema.OptionFromOptionalKey(PaneGraphicsPlacement),
 });
 
@@ -2482,8 +2502,8 @@ export interface PaneGraphicsFileFrameEncoded extends Schema.Codec.Encoded<
  * @since 0.8.2
  */
 export const PaneGraphicsFrameAcknowledgement = Schema.Struct({
-  sequence: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
-  revision: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  sequence: Schema.Natural,
+  revision: Schema.Natural,
 });
 
 /**
@@ -2508,7 +2528,7 @@ interface LayoutPaneNodeValue {
 interface LayoutSplitNodeValue {
   readonly type: "split";
   readonly direction: SplitDirection;
-  readonly ratio: number;
+  readonly ratio: HerdrSplitRatio;
   readonly first: LayoutNodeValue;
   readonly second: LayoutNodeValue;
 }
@@ -2614,8 +2634,8 @@ export type LayoutNode = typeof LayoutNode.Type;
  * @since 0.8.2
  */
 export const LayoutTarget = Schema.Union([
-  Schema.Struct({ tabId: TabId }),
-  Schema.Struct({ paneId: PaneId }),
+  Schema.Struct({ tabId: TabId, paneId: Schema.optionalKey(Schema.Never) }),
+  Schema.Struct({ paneId: PaneId, tabId: Schema.optionalKey(Schema.Never) }),
 ]);
 
 /**
@@ -2723,23 +2743,13 @@ export const LayoutDescription = Schema.Struct({
  */
 export interface LayoutDescription extends Schema.Schema.Type<typeof LayoutDescription> {}
 
-interface HerdrJsonObjectValue {
-  readonly [key: string]: HerdrJsonValue;
-}
-
 /**
  * JSON value returned by currently schema-less Herdr protocol fields.
  *
  * @category models
  * @since 0.8.2
  */
-export type HerdrJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | readonly HerdrJsonValue[]
-  | HerdrJsonObjectValue;
+export type HerdrJsonValue = typeof HerdrJsonValue.Type;
 
 /**
  * JSON value returned by currently schema-less Herdr protocol fields.
@@ -2747,27 +2757,26 @@ export type HerdrJsonValue =
  * @category schemas
  * @since 0.8.2
  */
-export const HerdrJsonValue: Schema.Codec<HerdrJsonValue> = Schema.Union([
-  Schema.String,
-  Schema.Number,
-  Schema.Boolean,
-  Schema.Null,
-  Schema.Array(Schema.suspend((): Schema.Codec<HerdrJsonValue> => HerdrJsonValue)),
-  Schema.Record(
-    Schema.String,
-    Schema.suspend((): Schema.Codec<HerdrJsonValue> => HerdrJsonValue),
-  ),
-]);
+export const HerdrJsonValue = Schema.Json;
 
 /**
- * Pane identifier or assigned name selecting one agent.
+ * Exactly one agent selector. Parsing supplies `kind` for existing single-selector inputs;
+ * an explicit kind must agree with its selector, and competing selectors are rejected.
  *
  * @category schemas
  * @since 0.8.2
  */
 export const AgentTarget = Schema.Union([
-  Schema.Struct({ paneId: PaneId }),
-  Schema.Struct({ name: AgentName }),
+  Schema.Struct({
+    kind: Schema.tag("pane").pipe(Schema.withDecodingDefaultKey(Effect.succeed("pane"))),
+    paneId: PaneId,
+    name: Schema.optionalKey(Schema.Never),
+  }),
+  Schema.Struct({
+    kind: Schema.tag("agent").pipe(Schema.withDecodingDefaultKey(Effect.succeed("agent"))),
+    name: AgentName,
+    paneId: Schema.optionalKey(Schema.Never),
+  }),
 ]);
 
 /**
@@ -2950,7 +2959,7 @@ export type AgentViewField = typeof AgentViewField.Type;
 export const AgentViewValue = Schema.Union([
   Schema.String,
   Schema.Boolean,
-  Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  Schema.Natural,
   Schema.Struct({
     context: Schema.Literals(["current_workspace_id", "current_tab_id"]),
   }),
@@ -3151,7 +3160,7 @@ export interface AgentViewClearInputEncoded extends Schema.Codec.Encoded<
  */
 export const SessionSnapshot = Schema.Struct({
   version: Schema.String,
-  protocol: Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  protocol: Schema.Natural,
   focusedWorkspaceId: Schema.OptionFromOptionalNullOr(WorkspaceId),
   focusedTabId: Schema.OptionFromOptionalNullOr(TabId),
   focusedPaneId: Schema.OptionFromOptionalNullOr(PaneId),
@@ -3179,13 +3188,7 @@ export interface SessionSnapshot extends Schema.Schema.Type<typeof SessionSnapsh
 const herdrEventType = <const Encoded extends string, const Decoded extends string>(
   encoded: Encoded,
   decoded: Decoded,
-) =>
-  Schema.Literal(encoded).pipe(
-    Schema.decodeTo(Schema.Literal(decoded), {
-      decode: SchemaGetter.transform(() => decoded),
-      encode: SchemaGetter.transform(() => encoded),
-    }),
-  );
+) => Schema.Literal(encoded).transform(decoded);
 
 const WorkspaceEvent = <
   const Encoded extends "workspace_created" | "workspace_updated" | "workspace_metadata_updated",

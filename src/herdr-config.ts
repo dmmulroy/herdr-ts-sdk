@@ -31,7 +31,7 @@ export const HerdrRequestDeadline = Schema.Duration.check(
       ? undefined
       : "must be a finite, non-negative duration",
   ),
-);
+).pipe(Schema.brand("HerdrRequestDeadline"));
 
 /**
  * Parsed deadline for ordinary Herdr transport requests.
@@ -87,11 +87,13 @@ export const HerdrConfigOptions = Schema.Struct({
   session: Schema.optionalKey(HerdrSessionName),
   requestTimeout: Schema.optionalKey(HerdrRequestDeadline),
   application: Schema.optionalKey(HerdrApplication),
-}).check(
-  Schema.makeFilter((value) =>
-    value.socketPath === undefined || value.session === undefined
-      ? undefined
-      : "socketPath and session are mutually exclusive",
+}).pipe(
+  Schema.refine(
+    (
+      value,
+    ): value is typeof value & ({ readonly socketPath?: never } | { readonly session?: never }) =>
+      value.socketPath === undefined || value.session === undefined,
+    { expected: "socketPath and session are mutually exclusive" },
   ),
 );
 
@@ -104,8 +106,9 @@ export const HerdrConfigOptions = Schema.Struct({
 export interface HerdrConfigOptions extends Schema.Codec.Encoded<typeof HerdrConfigOptions> {}
 
 const parseHerdrConfigOptions = Schema.decodeEffect(HerdrConfigOptions);
-const parseHerdrDurationFromString = Schema.decodeEffect(Schema.DurationFromString);
-const parseHerdrRequestDeadline = Schema.decodeEffect(HerdrRequestDeadline);
+const parseHerdrRequestDeadlineFromString = Schema.decodeEffect(
+  Schema.DurationFromString.pipe(Schema.decodeTo(HerdrRequestDeadline)),
+);
 const parseHerdrAbsolutePath = Schema.decodeEffect(HerdrAbsolutePath);
 const parseHerdrSessionName = Schema.decodeEffect(HerdrSessionName);
 
@@ -294,11 +297,7 @@ function resolveHerdrRequestTimeout(
     return Effect.succeed(HerdrRequestDeadline.make(DEFAULT_REQUEST_TIMEOUT));
   }
 
-  const requestTimeout = ambient.requestTimeout.value;
-  return Effect.gen(function* () {
-    const duration = yield* parseHerdrDurationFromString(requestTimeout);
-    return yield* parseHerdrRequestDeadline(duration);
-  });
+  return parseHerdrRequestDeadlineFromString(ambient.requestTimeout.value);
 }
 
 function resolveHerdrConfigDirectory(
