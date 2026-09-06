@@ -12,6 +12,7 @@ import {
   type SdkEvidenceManifest,
 } from "./sdk-evidence-bundle.mjs";
 import { runSdkToolingTest } from "./sdk-tooling-test-runtime.ts";
+import { runVerificationCommand } from "./sdk-verification-process.mjs";
 
 const repositoryRoot = process.cwd();
 const fixtureManifest = (bundle: { id: string; createdAt: string }): SdkEvidenceManifest => ({
@@ -327,19 +328,59 @@ test("oversized and malformed stored manifests fail bounded inspection", (contex
     }),
   ));
 
-test("source fingerprint records explicit dirty bytes, never repository absolute paths", (context) =>
+test("source fingerprint distinguishes an owned clean checkout from changed and untracked bytes", (context) =>
   runSdkToolingTest(
     context,
     Effect.gen(function* () {
-      const source = yield* fingerprintSdkEvidenceSource({
-        repositoryRoot,
-        files: ["scripts/sdk-evidence-bundle.mjs"],
-      });
-      expect(source.dirty).toBe(true);
-      expect(source.fingerprint).toMatch(/^[0-9a-f]{64}$/);
-      expect(source.files).toEqual(["scripts/sdk-evidence-bundle.mjs"]);
-      expect(JSON.stringify(source)).not.toContain(repositoryRoot);
-      expect(source.limitations.join(" ")).toContain("not an atomic snapshot");
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "evidence-source-" });
+      const git = (args: readonly string[]) =>
+        runVerificationCommand("git", ["-C", directory, ...args], {
+          capture: true,
+          env: {
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_CONFIG_GLOBAL: path.join(directory, "no-global-config"),
+          },
+        });
+      yield* fs.writeFileString(path.join(directory, "source.txt"), "original\n");
+      for (const args of [
+        ["init"],
+        ["add", "source.txt"],
+        [
+          "-c",
+          "user.name=Evidence Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "-m",
+          "fixture",
+        ],
+      ]) {
+        const result = yield* git(args);
+        expect(result.status, result.output).toBe("pass");
+      }
+      const capture = () =>
+        fingerprintSdkEvidenceSource({ repositoryRoot: directory, files: ["source.txt"] });
+      const clean = yield* capture();
+      expect(clean.dirty).toBe(false);
+      yield* fs.writeFileString(path.join(directory, "source.txt"), "changed\n");
+      const changed = yield* capture();
+      expect(changed.dirty).toBe(true);
+      expect(changed.fingerprint).not.toBe(clean.fingerprint);
+      expect(changed.revision).toBe(clean.revision);
+      yield* fs.writeFileString(path.join(directory, "source.txt"), "original\n");
+      yield* fs.writeFileString(path.join(directory, "untracked.txt"), "untracked\n");
+      const untracked = yield* capture();
+      expect(untracked.dirty).toBe(true);
+      expect(untracked.fingerprint).toBe(clean.fingerprint);
+      for (const source of [clean, changed, untracked]) {
+        expect(source.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+        expect(source.files).toEqual(["source.txt"]);
+        expect(JSON.stringify(source)).not.toContain(directory);
+        expect(source.limitations.join(" ")).toContain("not an atomic snapshot");
+      }
     }),
   ));
 

@@ -4,6 +4,7 @@ import { runHerdrTest } from "./herdr-test-runtime.ts";
 import { HerdrSdk, herdrSdkLayerFromOptions } from "./index.ts";
 import { startHerdrTestServer } from "./herdr-test-server.ts";
 import { makeHerdrSuccessResponse } from "./herdr-wire-fixtures.ts";
+import { resolveHerdrSocketEndpoint } from "./herdr-transport.ts";
 
 test("local platform socket completes public SDK success and server failure with socket cleanup", (context) =>
   runHerdrTest(
@@ -20,7 +21,10 @@ test("local platform socket completes public SDK success and server failure with
               : makeHerdrSuccessResponse(request),
           ),
         );
-        expect(server.socketPath.startsWith("\\\\.\\pipe\\")).toBe(process.platform === "win32");
+        // The fixture exposes the logical path used by the SDK; Node receives its translated endpoint.
+        expect(resolveHerdrSocketEndpoint(server.socketPath).startsWith("\\\\.\\pipe\\")).toBe(
+          process.platform === "win32",
+        );
         yield* Effect.gen(function* () {
           const sdk = yield* HerdrSdk;
           const ping = yield* sdk.server.ping();

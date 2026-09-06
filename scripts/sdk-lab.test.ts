@@ -1,5 +1,6 @@
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import { Effect, FileSystem, Layer } from "effect";
 import { runVerificationCommand, verificationNodeLayer } from "./sdk-verification-process.mjs";
 import { expect, test, type TestContext } from "vite-plus/test";
@@ -73,8 +74,9 @@ test(
           if (id === undefined) return yield* Effect.die("SDK lab test catalog missing an ID");
           const result = yield* runLabCommand(["--scenario", id]);
           expect(result.status, result.output).toBe("pass");
-          expect(result.output).toContain("1 passed | 3 skipped");
-          const report = /JSON report written to ([^\r\n]+)/.exec(result.output)?.[1];
+          const output = stripVTControlCharacters(result.output);
+          expect(output).toContain("1 passed | 3 skipped");
+          const report = /JSON report written to ([^\r\n]+)/.exec(output)?.[1];
           expect(report).toBeDefined();
           if (report === undefined) return yield* Effect.die("SDK lab test expected a report path");
           expect(yield* fs.exists(dirname(report))).toBe(false);

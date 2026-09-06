@@ -1,5 +1,6 @@
 import { Cause, Effect, Exit, Schema } from "effect";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 import { expect, test } from "vite-plus/test";
 import { runHerdrTest } from "../src/herdr-test-runtime.js";
 import {
@@ -143,7 +144,7 @@ test(
           },
         );
         expect(result.exitCode, result.output).toBe(0);
-        expect(result.output).toContain("1 passed | 3 skipped");
+        expect(stripVTControlCharacters(result.output)).toContain("1 passed | 3 skipped");
         expect(result.output).toContain("SDK trace exported");
         const spans = sdkTelemetryRecordedSpans(collector.requests);
         const roots = spans.filter((span) => span.name === "sdk.execution");
