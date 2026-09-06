@@ -109,40 +109,45 @@ const summary = (traceID: string) => ({
 });
 
 describe("evidence review across viewer and bundle boundaries", () => {
-  it("keeps malicious narrative inert and rejects a replaced artifact during offline inspection", (context) =>
-    runSdkToolingTest(
-      context,
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
-        const parent = yield* fs.makeTempDirectoryScoped({ prefix: "sdk-evidence-review-" });
-        const claim = '<script>alert("fixture-review")</script>';
-        const result = yield* runSdkEvidence({
-          scenarioId: "compatibility-recovery",
-          claim,
-          out: parent,
-        });
-        expect(result.manifest.outcomes.product.status).toBe("passed");
-        expect(result.manifest.outcomes.recording.status).toBe("not-requested");
-        expect(result.manifest.outcomes.viewer.status).toBe("not-requested");
-        const inspected = yield* readSdkEvidenceBundle(result.directory);
-        expect(inspected.claim).toBe(claim);
-        expect(inspected.executionKind ?? "fixture").toBe("fixture");
-        const html = yield* fs.readFileString(join(result.directory, "review.html"));
-        expect(html).not.toContain("<script>");
-        expect(html).toContain("&lt;script&gt;");
-        expect(html).toContain("not an assertion");
-        expect(html).toContain("Fixture evidence only; live Herdr UI was not exercised.");
-        expect(html).not.toContain("Isolated Herdr execution");
-        const artifact = inspected.artifacts[0];
-        if (!artifact) return yield* Effect.die("Evidence review fixture produced no artifact");
-        const outside = join(parent, "private-fixture.txt");
-        yield* fs.writeFileString(outside, "fixture-private-sentinel");
-        yield* fs.remove(join(result.directory, artifact.path));
-        yield* fs.symlink(outside, join(result.directory, artifact.path));
-        const failure = yield* readSdkEvidenceBundle(result.directory).pipe(Effect.flip);
-        expect(failure.reason).toBe("unsafe-path");
-      }).pipe(Effect.scoped, Effect.provide(verificationNodeLayer)),
-    ));
+  it(
+    "keeps malicious narrative inert and rejects a replaced artifact during offline inspection",
+    (context) =>
+      runSdkToolingTest(
+        context,
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const parent = yield* fs.makeTempDirectoryScoped({ prefix: "sdk-evidence-review-" });
+          const claim = '<script>alert("fixture-review")</script>';
+          const result = yield* runSdkEvidence({
+            scenarioId: "compatibility-recovery",
+            claim,
+            out: parent,
+          });
+          expect(result.manifest.outcomes.product.status).toBe("passed");
+          expect(result.manifest.outcomes.recording.status).toBe("not-requested");
+          expect(result.manifest.outcomes.viewer.status).toBe("not-requested");
+          const inspected = yield* readSdkEvidenceBundle(result.directory);
+          expect(inspected.claim).toBe(claim);
+          expect(inspected.executionKind ?? "fixture").toBe("fixture");
+          const html = yield* fs.readFileString(join(result.directory, "review.html"));
+          expect(html).not.toContain("<script>");
+          expect(html).toContain("&lt;script&gt;");
+          expect(html).toContain("not an assertion");
+          expect(html).toContain("Fixture evidence only; live Herdr UI was not exercised.");
+          expect(html).not.toContain("Isolated Herdr execution");
+          const artifact = inspected.artifacts[0];
+          if (!artifact) return yield* Effect.die("Evidence review fixture produced no artifact");
+          const outside = join(parent, "private-fixture.txt");
+          yield* fs.writeFileString(outside, "fixture-private-sentinel");
+          yield* fs.remove(join(result.directory, artifact.path));
+          yield* fs.symlink(outside, join(result.directory, artifact.path));
+          const failure = yield* readSdkEvidenceBundle(result.directory).pipe(Effect.flip);
+          expect(failure.reason).toBe("unsafe-path");
+        }).pipe(Effect.scoped, Effect.provide(verificationNodeLayer)),
+      ),
+    // Includes a real Vitest child process; match the other evidence integration-test budgets.
+    15000,
+  );
   it(
     "never treats an HTTP-accepted zero-span query as observed evidence",
     (context) =>
