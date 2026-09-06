@@ -1,4 +1,5 @@
-import { Effect, FileSystem, Fiber, Schedule, Schema } from "effect";
+import { Deferred, Effect, FileSystem, Fiber, Schema } from "effect";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "vite-plus/test";
 import { runSdkToolingTest } from "./sdk-tooling-test-runtime.ts";
 import { runSdkEvidence, renderSdkEvidence } from "./sdk-evidence-runner.mjs";
@@ -132,7 +133,7 @@ test(
 );
 
 test(
-  "interrupted fixture execution leaves incomplete artifacts, never a finalized success",
+  "interruption after bundle allocation preserves its incomplete marker, never a finalized success",
   (context) =>
     runSdkToolingTest(
       context,
@@ -140,19 +141,23 @@ test(
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const parent = yield* fs.makeTempDirectoryScoped({ prefix: "evidence-cli-interrupt-" });
+          const fingerprintStarted = yield* Deferred.make<void>();
+          const manifestPath = yield* fs.realPath(
+            fileURLToPath(new URL("../package.json", import.meta.url)),
+          );
+          // Fingerprinting starts only after allocation and its incomplete marker are committed.
+          // Seeing the directory alone can interrupt allocation, whose correct cleanup removes it.
+          const stat: typeof fs.stat = (filePath) =>
+            filePath === manifestPath
+              ? Deferred.succeed(fingerprintStarted, undefined).pipe(Effect.andThen(Effect.never))
+              : fs.stat(filePath);
           const fiber = yield* runSdkEvidence({
             scenarioId: "compatibility-recovery",
             out: parent,
-          }).pipe(Effect.forkScoped);
-          const entries = yield* fs.readDirectory(parent).pipe(
-            Effect.repeat({
-              schedule: Schedule.spaced("5 millis"),
-              while: (entries) => entries.length === 0,
-            }),
-            Effect.timeout("2 seconds"),
-          );
+          }).pipe(Effect.provideService(FileSystem.FileSystem, { ...fs, stat }), Effect.forkScoped);
+          yield* Deferred.await(fingerprintStarted).pipe(Effect.timeout("2 seconds"));
           yield* Fiber.interrupt(fiber);
-          const directory = entries[0];
+          const directory = (yield* fs.readDirectory(parent))[0];
           expect(directory).toBeDefined();
           expect(yield* fs.exists(`${parent}/${directory}/evidence.json`)).toBe(false);
           expect(yield* fs.exists(`${parent}/${directory}/evidence.incomplete.json`)).toBe(true);
