@@ -106,8 +106,13 @@ export interface HerdrTestServer {
     socket: Socket,
     chunks: readonly Uint8Array[],
   ) => Effect.Effect<void, HerdrTestFixtureError>;
-  /** Runs work in the fixture scope; cleanup interrupts both delay and work. */
-  readonly schedule: (delayMs: number, work: Effect.Effect<void, unknown>) => Effect.Effect<void>;
+  /** Runs work in the fixture scope; invalid delays fail with HerdrTestFixtureError before scheduling.
+   * Cleanup interrupts both delay and work.
+   */
+  readonly schedule: (
+    delayMs: number,
+    work: Effect.Effect<void, unknown>,
+  ) => Effect.Effect<void, HerdrTestFixtureError>;
   /** Idempotent cleanup; reports callback/parse/socket failure with safe diagnostics. */
   readonly close: Effect.Effect<void, HerdrTestFixtureError>;
 }
@@ -394,7 +399,7 @@ export const startHerdrTestServer = Effect.fn("startHerdrTestServer")(function* 
       writeChunks,
       schedule: (delayMs, work) =>
         Effect.gen(function* () {
-          yield* parseTestDelay(delayMs).pipe(Effect.orDie);
+          yield* parseTestDelay(delayMs);
           if (stopped || failed) return;
           yield* supervise(work).pipe(Effect.delay(delayMs), Effect.forkIn(scope));
         }),
