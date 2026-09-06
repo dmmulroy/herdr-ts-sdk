@@ -47,7 +47,6 @@ import {
   PaneGraphicsInfo,
   PaneGraphicsLayerInput,
   type PaneGraphicsLayerInputEncoded,
-  type PaneGraphicsPlacement,
   PaneGraphicsSetFrame,
   type PaneGraphicsSetFrameEncoded,
   PaneGraphicsStreamInput,
@@ -90,6 +89,11 @@ import {
 } from "./herdr-models.ts";
 import { decodeHerdrInput, decodeHerdrWire } from "./herdr-schema-boundary.ts";
 import { defineHerdrOperation } from "./herdr-effect-operation.ts";
+import {
+  encodePaneGraphicsPlacement,
+  encodePaneGraphicsStreamPlacement,
+  encodePaneReadParameters,
+} from "./herdr-wire-encoder.ts";
 import {
   HerdrGraphicsStreamClosed,
   HerdrImageTooLarge,
@@ -459,9 +463,9 @@ export const makePaneService = Effect.gen(function* () {
           "graphics_set",
           MAX_GRAPHICS_ONE_SHOT_BYTES,
         );
-        const placement = Option.match(parsed.placement, {
-          onNone: () => undefined,
-          onSome: encodeGraphicsPlacement,
+        const placement = yield* Option.match(parsed.placement, {
+          onNone: () => Effect.succeed(undefined),
+          onSome: (value) => encodePaneGraphicsPlacement(value).pipe(Effect.orDie),
         });
         const parametersWithoutPlacement = {
           paneId: id,
@@ -502,11 +506,18 @@ export const makePaneService = Effect.gen(function* () {
         }),
     ),
     openStream: defineHerdrOperation("PaneService.graphics.openStream", (id, options = {}) =>
-      makePaneGraphicsWriter(transport, id, {}, options),
+      decodeHerdrInput("PaneService.graphics.openStream", parsePaneGraphicsStreamInput, {}).pipe(
+        Effect.flatMap((input) => makePaneGraphicsWriter(transport, id, input, options)),
+      ),
     ),
     openLayerStream: defineHerdrOperation(
       "PaneService.graphics.openLayerStream",
-      (id, input = {}, options = {}) => makePaneGraphicsWriter(transport, id, input, options),
+      (id, input = {}, options = {}) =>
+        decodeHerdrInput(
+          "PaneService.graphics.openLayerStream",
+          parsePaneGraphicsStreamInput,
+          input,
+        ).pipe(Effect.flatMap((parsed) => makePaneGraphicsWriter(transport, id, parsed, options))),
     ),
   };
 
@@ -542,7 +553,7 @@ export const makePaneService = Effect.gen(function* () {
       Effect.gen(function* () {
         const parsed = yield* decodeHerdrInput("PaneService.swap", parsePaneSwapInput, input);
         const parameters =
-          "direction" in parsed
+          parsed.direction !== undefined
             ? {
                 paneId: Option.getOrNull(parsed.paneId),
                 direction: parsed.direction,
@@ -783,16 +794,12 @@ export const makePaneService = Effect.gen(function* () {
     read: defineHerdrOperation("PaneService.read", (id, input, options = {}) =>
       Effect.gen(function* () {
         const parsed = yield* decodeHerdrInput("PaneService.read", parsePaneReadInput, input);
-        const base = { paneId: id, source: parsed.source, lines: Option.getOrNull(parsed.lines) };
-        const withFormat = Option.match(parsed.format, {
-          onNone: () => base,
-          onSome: (format) => ({ ...base, format }),
-        });
-        const parameters = Option.match(parsed.stripAnsi, {
-          onNone: () => withFormat,
-          onSome: (stripAnsi) => ({ ...withFormat, stripAnsi }),
-        });
-        const response = yield* transport.request("pane.read", parameters, options);
+        const parameters = yield* encodePaneReadParameters(parsed).pipe(Effect.orDie);
+        const response = yield* transport.request(
+          "pane.read",
+          { paneId: id, ...parameters },
+          options,
+        );
         return yield* decodeHerdrWire(
           parsePaneReadResult,
           response.result.read,
@@ -961,20 +968,15 @@ export const makePaneService = Effect.gen(function* () {
 function makePaneGraphicsWriter(
   transport: IHerdrTransport,
   paneId: PaneId,
-  input: PaneGraphicsStreamInputEncoded,
+  input: typeof PaneGraphicsStreamInput.Type,
   options: HerdrTransportRequestOptionsEncoded,
 ): Effect.Effect<PaneGraphicsWriter, HerdrTransportRequestError, Scope.Scope> {
   return Effect.gen(function* () {
-    const parsedInput = yield* decodeHerdrInput(
-      "PaneService.graphics.openLayerStream",
-      parsePaneGraphicsStreamInput,
-      input,
-    );
     const baseParameters = {
       paneId,
-      layerId: Option.getOrNull(parsedInput.layerId),
+      layerId: Option.getOrNull(input.layerId),
     };
-    const parameters = Option.match(parsedInput.zIndex, {
+    const parameters = Option.match(input.zIndex, {
       onNone: () => baseParameters,
       onSome: (zIndex) => ({ ...baseParameters, zIndex }),
     });
@@ -1084,9 +1086,9 @@ function makePaneGraphicsWriter(
               image_width: parsed.imageWidth,
               image_height: parsed.imageHeight,
               data_length: parsed.data.byteLength,
-              placement: Option.match(parsed.placement, {
-                onNone: () => undefined,
-                onSome: encodeGraphicsStreamPlacement,
+              placement: yield* Option.match(parsed.placement, {
+                onNone: () => Effect.succeed(undefined),
+                onSome: (value) => encodePaneGraphicsStreamPlacement(value).pipe(Effect.orDie),
               }),
             };
             const bytes = Buffer.concat([
@@ -1118,9 +1120,9 @@ function makePaneGraphicsWriter(
                 file: { path: parsed.filePath },
                 sequence: parsed.sequence,
                 revision: parsed.revision,
-                placement: Option.match(parsed.placement, {
-                  onNone: () => undefined,
-                  onSome: encodeGraphicsStreamPlacement,
+                placement: yield* Option.match(parsed.placement, {
+                  onNone: () => Effect.succeed(undefined),
+                  onSome: (value) => encodePaneGraphicsStreamPlacement(value).pipe(Effect.orDie),
                 }),
               };
               // Once submitted, interruption or an invalid acknowledgement makes the frame
@@ -1233,44 +1235,6 @@ function encodePaneMoveDestination(destination: PaneMoveInput["destination"]) {
         tabLabel: Option.getOrNull(destination.tabLabel),
       };
   }
-}
-
-function encodeGraphicsPlacement(placement: PaneGraphicsPlacement) {
-  const a = Option.match(placement.viewportCol, {
-    onNone: () => ({}),
-    onSome: (viewportCol) => ({ viewportCol }),
-  });
-  const b = Option.match(placement.viewportRow, {
-    onNone: () => a,
-    onSome: (viewportRow) => ({ ...a, viewportRow }),
-  });
-  const c = Option.match(placement.gridCols, {
-    onNone: () => b,
-    onSome: (gridCols) => ({ ...b, gridCols }),
-  });
-  return Option.match(placement.gridRows, {
-    onNone: () => c,
-    onSome: (gridRows) => ({ ...c, gridRows }),
-  });
-}
-
-function encodeGraphicsStreamPlacement(placement: PaneGraphicsPlacement) {
-  const a = Option.match(placement.viewportCol, {
-    onNone: () => ({}),
-    onSome: (viewport_col) => ({ viewport_col }),
-  });
-  const b = Option.match(placement.viewportRow, {
-    onNone: () => a,
-    onSome: (viewport_row) => ({ ...a, viewport_row }),
-  });
-  const c = Option.match(placement.gridCols, {
-    onNone: () => b,
-    onSome: (grid_cols) => ({ ...b, grid_cols }),
-  });
-  return Option.match(placement.gridRows, {
-    onNone: () => c,
-    onSome: (grid_rows) => ({ ...c, grid_rows }),
-  });
 }
 
 function decodeGraphicsFrame(

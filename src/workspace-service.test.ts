@@ -2,7 +2,7 @@ import { Duration, Effect, Option, Schema } from "effect";
 import type { PaneInfo, TabInfo, WorkspaceInfo } from "./generated/wire-success-response.ts";
 import { expect, test } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
-import { HerdrConfig, type IHerdrConfig } from "./herdr-config.ts";
+import { HerdrConfig, HerdrRequestDeadline, type IHerdrConfig } from "./herdr-config.ts";
 import { HerdrAbsolutePath, WorkspaceId } from "./herdr-domain.ts";
 import { startHerdrTestServer } from "./herdr-test-server.ts";
 import { herdrTransportLayerWithoutDependencies } from "./herdr-transport.ts";
@@ -148,7 +148,7 @@ function withWorkspaceService<A, E>(
   const config: IHerdrConfig = {
     socketPath: Schema.decodeUnknownSync(HerdrAbsolutePath)(socketPath),
     session: Option.none(),
-    requestTimeout: Duration.seconds(1),
+    requestTimeout: HerdrRequestDeadline.make(Duration.seconds(1)),
     application: Option.none(),
     supportedProtocol: 21,
   };

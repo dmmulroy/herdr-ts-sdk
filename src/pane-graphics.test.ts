@@ -340,6 +340,7 @@ test("graphics capabilities, layers, BGRA, and direct-file acknowledgements cros
               data: Uint8Array.of(0, 0, 0, 255),
               layerId: "overlay",
               zIndex: 7,
+              placement: { viewportCol: 0, viewportRow: 0, gridCols: 2, gridRows: 3 },
             });
             yield* herdr.panes.graphics.clearLayer(paneId, { layerId: "overlay" });
             const acknowledgement = yield* Effect.scoped(
@@ -375,7 +376,12 @@ test("graphics capabilities, layers, BGRA, and direct-file acknowledgements cros
         expect(
           server.requests.find((request) => request.method === "pane.graphics.set"),
         ).toMatchObject({
-          params: { format: "bgra", layer_id: "overlay", z_index: 7 },
+          params: {
+            format: "bgra",
+            layer_id: "overlay",
+            z_index: 7,
+            placement: { viewport_col: 0, viewport_row: 0, grid_cols: 2, grid_rows: 3 },
+          },
         });
         expect(
           server.requests.find((request) => request.method === "pane.graphics.clear"),

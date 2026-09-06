@@ -36,6 +36,11 @@ import {
 import { decodeHerdrInput, decodeHerdrWire } from "./herdr-schema-boundary.ts";
 import { defineHerdrOperation } from "./herdr-effect-operation.ts";
 import {
+  encodeAgentPromptParameters,
+  encodeAgentWaitParameters,
+  encodePaneReadParameters,
+} from "./herdr-wire-encoder.ts";
+import {
   HerdrTransport,
   herdrTransportLayer,
   type HerdrTransportRequestError,
@@ -165,12 +170,11 @@ export const makeAgentService = Effect.gen(function* () {
     "AgentService.readAgent",
     (
       method: "agent.get" | "agent.focus",
-      target: AgentTargetEncoded,
+      target: AgentTargetValue,
       options: HerdrTransportRequestOptionsEncoded,
     ) =>
       Effect.gen(function* () {
-        const parsedTarget = yield* decodeAgentTarget(target);
-        const response = yield* transport.request(method, encodeAgentTarget(parsedTarget), options);
+        const response = yield* transport.request(method, encodeAgentTarget(target), options);
         return yield* decodeHerdrWire(parseAgent, response.result.agent, response.requestId);
       }),
   );
@@ -214,26 +218,20 @@ export const makeAgentService = Effect.gen(function* () {
       }),
     ),
     get: defineHerdrOperation("AgentService.get", (target, options = {}) =>
-      readAgent("agent.get", target, options),
+      decodeAgentTarget(target).pipe(
+        Effect.flatMap((parsed) => readAgent("agent.get", parsed, options)),
+      ),
     ),
     read: defineHerdrOperation("AgentService.read", (target, input, options = {}) =>
       Effect.gen(function* () {
         const parsedTarget = yield* decodeAgentTarget(target);
         const parsed = yield* decodeHerdrInput("AgentService.read", parsePaneReadInput, input);
-        const base = {
-          ...encodeAgentTarget(parsedTarget),
-          source: parsed.source,
-          lines: Option.getOrNull(parsed.lines),
-        };
-        const withFormat = Option.match(parsed.format, {
-          onNone: () => base,
-          onSome: (format) => ({ ...base, format }),
-        });
-        const parameters = Option.match(parsed.stripAnsi, {
-          onNone: () => withFormat,
-          onSome: (stripAnsi) => ({ ...withFormat, stripAnsi }),
-        });
-        const response = yield* transport.request("agent.read", parameters, options);
+        const parameters = yield* encodePaneReadParameters(parsed).pipe(Effect.orDie);
+        const response = yield* transport.request(
+          "agent.read",
+          { ...encodeAgentTarget(parsedTarget), ...parameters },
+          options,
+        );
         return yield* decodeHerdrWire(
           parsePaneReadResult,
           response.result.read,
@@ -283,7 +281,9 @@ export const makeAgentService = Effect.gen(function* () {
       }),
     ),
     focus: defineHerdrOperation("AgentService.focus", (target, options = {}) =>
-      readAgent("agent.focus", target, options),
+      decodeAgentTarget(target).pipe(
+        Effect.flatMap((parsed) => readAgent("agent.focus", parsed, options)),
+      ),
     ),
     start: defineHerdrOperation("AgentService.start", (input, options = {}) =>
       Effect.gen(function* () {
@@ -306,21 +306,12 @@ export const makeAgentService = Effect.gen(function* () {
       Effect.gen(function* () {
         const parsedTarget = yield* decodeAgentTarget(target);
         const parsed = yield* decodeHerdrInput("AgentService.prompt", parseAgentPromptInput, input);
-        const parameters = Option.match(parsed.wait, {
-          onNone: () => ({ ...encodeAgentTarget(parsedTarget), text: parsed.text }),
-          onSome: (wait) => ({
-            ...encodeAgentTarget(parsedTarget),
-            text: parsed.text,
-            wait: Option.match(wait.until, {
-              onNone: () => ({ timeoutMs: Option.getOrNull(wait.timeoutMs) }),
-              onSome: (until) => ({
-                timeoutMs: Option.getOrNull(wait.timeoutMs),
-                until,
-              }),
-            }),
-          }),
-        });
-        const response = yield* transport.request("agent.prompt", parameters, options);
+        const parameters = yield* encodeAgentPromptParameters(parsed).pipe(Effect.orDie);
+        const response = yield* transport.request(
+          "agent.prompt",
+          { ...encodeAgentTarget(parsedTarget), ...parameters },
+          options,
+        );
         return yield* decodeHerdrWire(parseAgent, response.result.agent, response.requestId);
       }),
     ),
@@ -328,15 +319,12 @@ export const makeAgentService = Effect.gen(function* () {
       Effect.gen(function* () {
         const parsedTarget = yield* decodeAgentTarget(target);
         const parsed = yield* decodeHerdrInput("AgentService.wait", parseAgentWaitInput, input);
-        const base = {
-          ...encodeAgentTarget(parsedTarget),
-          timeoutMs: Option.getOrNull(parsed.timeoutMs),
-        };
-        const parameters = Option.match(parsed.until, {
-          onNone: () => base,
-          onSome: (until) => ({ ...base, until }),
-        });
-        const response = yield* transport.request("agent.wait", parameters, options);
+        const parameters = yield* encodeAgentWaitParameters(parsed).pipe(Effect.orDie);
+        const response = yield* transport.request(
+          "agent.wait",
+          { ...encodeAgentTarget(parsedTarget), ...parameters },
+          options,
+        );
         return yield* decodeHerdrWire(parseAgent, response.result.agent, response.requestId);
       }),
     ),
@@ -370,5 +358,5 @@ function decodeAgentTarget(target: AgentTargetEncoded) {
 }
 
 function encodeAgentTarget(target: AgentTargetValue) {
-  return { target: "paneId" in target ? target.paneId : target.name };
+  return { target: target.kind === "pane" ? target.paneId : target.name };
 }

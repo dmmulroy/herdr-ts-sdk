@@ -6,7 +6,7 @@ import {
 } from "../scripts/sdk-telemetry-test-server.ts";
 import { traceSdkExecution } from "../scripts/sdk-telemetry.mjs";
 import packageJson from "../package.json" with { type: "json" };
-import { HerdrConfig, HerdrProtocolVersion } from "./herdr-config.ts";
+import { HerdrConfig, HerdrProtocolVersion, HerdrRequestDeadline } from "./herdr-config.ts";
 import { parseHerdrAbsolutePath } from "./herdr-domain.ts";
 import { HerdrTransport, herdrTransportLayerWithoutDependencies } from "./herdr-transport.ts";
 import { HerdrRawTestResponse, startHerdrTestServer } from "./herdr-test-server.ts";
@@ -29,7 +29,7 @@ function withTracingTransport<A, E, R>(
         HerdrConfig.of({
           socketPath: absolutePath,
           session: Option.none(),
-          requestTimeout: Duration.seconds(1),
+          requestTimeout: HerdrRequestDeadline.make(Duration.seconds(1)),
           application: Option.none(),
           supportedProtocol,
         }),

@@ -1,9 +1,105 @@
 /**
- * Serializes typed Herdr requests without re-parsing parameters or rewriting dictionary data.
+ * Encodes parsed domain options with private request codecs, then serializes typed requests.
+ * The final serializer does not validate parameters or rewrite dictionary data.
  *
  * @since 0.8.2
  */
+import { Effect, Schema } from "effect";
 import type { WireMethod, WireMethodMap } from "./generated/wire-method-map.ts";
+import {
+  AgentPromptInput,
+  AgentWaitInput,
+  PaneGraphicsPlacement,
+  PaneReadInput,
+} from "./herdr-models.ts";
+
+// Public inputs omit absent fields; these request codecs preserve the protocol's
+// existing null/omission choices without changing those public encoded contracts.
+const PaneReadRequestParameters = PaneReadInput.mapFields((fields) => ({
+  ...fields,
+  lines: Schema.OptionFromNullOr(Schema.requiredKey(fields.lines.from)),
+}));
+const AgentWaitRequestParameters = AgentWaitInput.mapFields((fields) => ({
+  ...fields,
+  timeoutMs: Schema.OptionFromNullOr(Schema.requiredKey(fields.timeoutMs.from)),
+}));
+const AgentPromptRequestParameters = AgentPromptInput.mapFields((fields) => ({
+  ...fields,
+  wait: Schema.OptionFromOptionalKey(AgentWaitRequestParameters),
+}));
+const PaneGraphicsStreamPlacement = PaneGraphicsPlacement.pipe(
+  Schema.encodeKeys({
+    viewportCol: "viewport_col",
+    viewportRow: "viewport_row",
+    gridCols: "grid_cols",
+    gridRows: "grid_rows",
+  }),
+);
+const encodePaneReadRequest = Schema.encodeEffect(PaneReadRequestParameters);
+const encodeAgentWaitRequest = Schema.encodeEffect(AgentWaitRequestParameters);
+const encodeAgentPromptRequest = Schema.encodeEffect(AgentPromptRequestParameters);
+const encodePanePlacement = Schema.encodeEffect(PaneGraphicsPlacement);
+const encodeStreamPlacement = Schema.encodeEffect(PaneGraphicsStreamPlacement);
+
+/**
+ * Encodes parsed pane/agent read options, keeping absent lines null and format flags omitted.
+ *
+ * @category encoding
+ * @since 0.8.2
+ */
+export function encodePaneReadParameters(
+  input: PaneReadInput,
+): Effect.Effect<typeof PaneReadRequestParameters.Encoded, Schema.SchemaError> {
+  return encodePaneReadRequest(input);
+}
+
+/**
+ * Encodes parsed wait options without turning an omitted status list into null.
+ *
+ * @category encoding
+ * @since 0.8.2
+ */
+export function encodeAgentWaitParameters(
+  input: AgentWaitInput,
+): Effect.Effect<typeof AgentWaitRequestParameters.Encoded, Schema.SchemaError> {
+  return encodeAgentWaitRequest(input);
+}
+
+/**
+ * Encodes nested prompt wait options with the same null/omission policy as agent.wait.
+ *
+ * @category encoding
+ * @since 0.8.2
+ */
+export function encodeAgentPromptParameters(
+  input: AgentPromptInput,
+): Effect.Effect<typeof AgentPromptRequestParameters.Encoded, Schema.SchemaError> {
+  return encodeAgentPromptRequest(input);
+}
+
+/**
+ * Encodes one-shot graphics coordinates as camel-case request parameters.
+ *
+ * @category encoding
+ * @since 0.8.2
+ */
+export function encodePaneGraphicsPlacement(
+  input: PaneGraphicsPlacement,
+): Effect.Effect<typeof PaneGraphicsPlacement.Encoded, Schema.SchemaError> {
+  return encodePanePlacement(input);
+}
+
+/**
+ * Encodes streaming graphics coordinates directly to the binary protocol's snake-case header.
+ *
+ * @category encoding
+ * @since 0.8.2
+ */
+export function encodePaneGraphicsStreamPlacement(
+  input: PaneGraphicsPlacement,
+): Effect.Effect<typeof PaneGraphicsStreamPlacement.Encoded, Schema.SchemaError> {
+  return encodeStreamPlacement(input);
+}
 
 type CamelCaseWireKey<Key extends string> = Key extends `${infer Head}_${infer Tail}`
   ? `${Head}${Capitalize<CamelCaseWireKey<Tail>>}`

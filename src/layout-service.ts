@@ -210,7 +210,7 @@ function encodeLayoutNode(node: LayoutApplyInput["root"]):
 function encodeLayoutTarget(target: LayoutTargetValue | undefined) {
   return target === undefined
     ? { paneId: null, tabId: null }
-    : "tabId" in target
+    : target.tabId !== undefined
       ? { paneId: null, tabId: target.tabId }
       : { paneId: target.paneId, tabId: null };
 }

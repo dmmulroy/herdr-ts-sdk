@@ -115,6 +115,79 @@ test("SDK preserves environment and metadata dictionary keys on the socket", (co
     ),
   ));
 
+test("pane and agent request codecs preserve null, omitted fields, false and nested wait options", (context) =>
+  runHerdrTest(
+    context,
+    Effect.scoped(
+      Effect.gen(function* () {
+        const server = yield* startHerdrTestServer((request) =>
+          Effect.succeed(makeHerdrSuccessResponse(request)),
+        );
+        yield* Effect.gen(function* () {
+          const sdk = yield* HerdrSdk;
+          const paneId = sdk.ids.pane("pane-1");
+          yield* sdk.panes.read(paneId, { source: "visible" });
+          yield* sdk.panes.read(paneId, {
+            source: "visible",
+            lines: 3,
+            format: "text",
+            stripAnsi: false,
+          });
+          yield* sdk.agents.read({ kind: "agent", name: "worker" }, { source: "visible" });
+          yield* sdk.agents.read(
+            { paneId },
+            { source: "visible", lines: 3, format: "text", stripAnsi: false },
+          );
+          yield* sdk.agents.wait({ paneId });
+          yield* sdk.agents.wait({ paneId }, { timeoutMs: 0, until: [] });
+          yield* sdk.agents.prompt({ paneId }, { text: "hello" });
+          yield* sdk.agents.prompt({ paneId }, { text: "hello", wait: {} });
+          yield* sdk.agents.prompt(
+            { paneId },
+            { text: "hello", wait: { timeoutMs: 0, until: ["done"] } },
+          );
+        }).pipe(
+          Effect.provide(
+            herdrSdkLayerFromOptions({ socketPath: HerdrAbsolutePath.make(server.socketPath) }),
+          ),
+        );
+        expect(
+          server.requests
+            .filter((request) => request.method === "pane.read")
+            .map((request) => request.params),
+        ).toStrictEqual([
+          { pane_id: "pane-1", source: "visible", lines: null },
+          { pane_id: "pane-1", source: "visible", lines: 3, format: "text", strip_ansi: false },
+        ]);
+        expect(
+          server.requests
+            .filter((request) => request.method === "agent.read")
+            .map((request) => request.params),
+        ).toStrictEqual([
+          { target: "worker", source: "visible", lines: null },
+          { target: "pane-1", source: "visible", lines: 3, format: "text", strip_ansi: false },
+        ]);
+        expect(
+          server.requests
+            .filter((request) => request.method === "agent.wait")
+            .map((request) => request.params),
+        ).toStrictEqual([
+          { target: "pane-1", timeout_ms: null },
+          { target: "pane-1", timeout_ms: 0, until: [] },
+        ]);
+        expect(
+          server.requests
+            .filter((request) => request.method === "agent.prompt")
+            .map((request) => request.params),
+        ).toStrictEqual([
+          { target: "pane-1", text: "hello" },
+          { target: "pane-1", text: "hello", wait: { timeout_ms: null } },
+          { target: "pane-1", text: "hello", wait: { timeout_ms: 0, until: ["done"] } },
+        ]);
+      }),
+    ),
+  ));
+
 test("arbitrary dictionary keys round-trip without prototype mutation or protocol-key conversion", () => {
   FastCheck.assert(
     FastCheck.property(

@@ -1,5 +1,5 @@
 import type { Socket } from "node:net";
-import { Deferred, Duration, Effect, Fiber, Stream } from "effect";
+import { Deferred, Duration, Effect, Fiber, Result, Stream } from "effect";
 import { expect, test } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
 import { HerdrAbsolutePath } from "./herdr-domain.ts";
@@ -72,6 +72,113 @@ test("event subscriptions normalize, filter, and close their scoped socket", (co
       }),
     ),
   ));
+
+test.for(["array", "object"] as const)(
+  "subscription filtering ignores caller %s mutation after parsing",
+  (mutation, context) =>
+    runHerdrTest(
+      context,
+      Effect.scoped(
+        Effect.gen(function* () {
+          const specification: { type: "workspace.created" | "workspace.updated" } = {
+            type: "workspace.created",
+          };
+          const subscriptions = [specification];
+          const server = yield* startHerdrTestServer((request) =>
+            Effect.sync(() => {
+              const response = makeHerdrSuccessResponse(request);
+              if (request.method !== "events.subscribe") return response;
+              if (mutation === "array") subscriptions.splice(0, 1, { type: "workspace.updated" });
+              else specification.type = "workspace.updated";
+              return new HerdrRawTestResponse(
+                [
+                  JSON.stringify(response),
+                  JSON.stringify({
+                    event: "workspace_updated",
+                    data: { type: "workspace_updated", workspace },
+                  }),
+                  JSON.stringify({
+                    event: "workspace_created",
+                    data: { type: "workspace_created", workspace },
+                  }),
+                  "",
+                ].join("\n"),
+              );
+            }),
+          );
+          const event = yield* provideHerdrTestSdk(
+            server.socketPath,
+            Effect.gen(function* () {
+              const herdr = yield* HerdrSdk;
+              return yield* herdr.events.subscribe(subscriptions).pipe(Stream.runHead);
+            }),
+          );
+          expect(
+            server.requests.find((request) => request.method === "events.subscribe")?.params
+              .subscriptions,
+          ).toStrictEqual([{ type: "workspace.created" }]);
+          expect(event._tag).toBe("Some");
+          if (event._tag === "Some") expect(event.value.type).toBe("workspace.created");
+          yield* server.waitFor("close", server.requests.length);
+          expect(server.openSocketMethods()).toStrictEqual([]);
+        }),
+      ),
+    ),
+);
+
+test.for(["workspace_created", "workspace_updated"] as const)(
+  "event wait checks its parsed selection against %s despite caller mutation",
+  (returnedType, context) =>
+    runHerdrTest(
+      context,
+      Effect.scoped(
+        Effect.gen(function* () {
+          const match: { type: "workspace.created" | "workspace.updated"; workspaceId: string } = {
+            type: "workspace.created",
+            workspaceId: "workspace-1",
+          };
+          const server = yield* startHerdrTestServer((request) =>
+            Effect.sync(() => {
+              if (request.method !== "events.wait") return makeHerdrSuccessResponse(request);
+              match.type = "workspace.updated";
+              return new HerdrRawTestResponse(
+                `${JSON.stringify({
+                  id: request.id,
+                  result: {
+                    type: "wait_matched",
+                    event: { event: returnedType, data: { type: returnedType, workspace } },
+                  },
+                })}\n`,
+              );
+            }),
+          );
+          const result = yield* provideHerdrTestSdk(
+            server.socketPath,
+            Effect.gen(function* () {
+              const herdr = yield* HerdrSdk;
+              return yield* herdr.events.wait(match).pipe(Effect.result);
+            }),
+          );
+          expect(
+            server.requests.find((request) => request.method === "events.wait")?.params.match_event,
+          ).toStrictEqual({ event: "workspace_created", workspace_id: "workspace-1" });
+          if (returnedType === "workspace_created") {
+            expect(Result.isSuccess(result)).toBe(true);
+            if (Result.isSuccess(result)) expect(result.success.type).toBe("workspace.created");
+          } else {
+            expect(Result.isFailure(result)).toBe(true);
+            if (Result.isFailure(result))
+              expect(result.failure).toMatchObject({
+                _tag: "HerdrInvalidResponse",
+                reason: "schema_mismatch",
+              });
+          }
+          yield* server.waitFor("close", server.requests.length);
+          expect(server.openSocketMethods()).toStrictEqual([]);
+        }),
+      ),
+    ),
+);
 
 test("accepted live-only subscriptions safely buffer events across snapshot bootstrap", (context) =>
   runHerdrTest(

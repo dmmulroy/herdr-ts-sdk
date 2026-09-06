@@ -2,9 +2,13 @@ import { NodeFileSystem } from "@effect/platform-node-shared";
 import { Deferred, Effect, Exit, Fiber, FileSystem, Logger } from "effect";
 import { createConnection, type Socket } from "node:net";
 import { dirname, join } from "node:path";
-import { expect, test, type TestContext } from "vite-plus/test";
+import { expect, expectTypeOf, test, type TestContext } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
-import { HerdrRawTestResponse, startHerdrTestServer } from "./herdr-test-server.ts";
+import {
+  HerdrRawTestResponse,
+  startHerdrTestServer,
+  type HerdrTestFixtureError,
+} from "./herdr-test-server.ts";
 import { resolveHerdrSocketEndpoint } from "./herdr-transport.ts";
 
 const requestBytes = Buffer.from(
@@ -257,6 +261,33 @@ test("fixture automatic cleanup fails on an unobserved callback failure", (conte
       ).pipe(Effect.exit);
       expect(Exit.isFailure(outcome)).toBe(true);
       expect(JSON.stringify(outcome)).not.toContain("secret-unobserved-failure");
+    }),
+  ));
+
+test("fixture schedule rejects invalid delays with typed errors and remains usable", (context) =>
+  runTest(
+    context,
+    Effect.gen(function* () {
+      const server = yield* startHerdrTestServer(() => Effect.void);
+      expectTypeOf(server.schedule).toEqualTypeOf<
+        (
+          delayMs: number,
+          work: Effect.Effect<void, unknown>,
+        ) => Effect.Effect<void, HerdrTestFixtureError>
+      >();
+      const rejectedWork = yield* Deferred.make<void>();
+      for (const delay of [-1, 0.5, NaN, Infinity, 2_147_483_648]) {
+        const error = yield* server
+          .schedule(delay, Deferred.succeed(rejectedWork, undefined).pipe(Effect.asVoid))
+          .pipe(Effect.flip);
+        expect(error._tag).toBe("HerdrTestFixtureError");
+        expect(error.message).toContain("invalid delay");
+      }
+      const acceptedWork = yield* Deferred.make<void>();
+      yield* server.schedule(0, Deferred.succeed(acceptedWork, undefined).pipe(Effect.asVoid));
+      yield* Deferred.await(acceptedWork);
+      yield* server.close;
+      expect(yield* Deferred.isDone(rejectedWork)).toBe(false);
     }),
   ));
 

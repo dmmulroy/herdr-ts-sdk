@@ -8,8 +8,9 @@
 import { isAbsolute } from "node:path";
 import { Schema } from "effect";
 
-const NonEmptyHerdrIdentifier = Schema.String.check(Schema.isMinLength(1));
-const HerdrNaturalNumber = Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0));
+const NonEmptyHerdrIdentifier = Schema.NonEmptyString;
+const HerdrNaturalNumber = Schema.Natural;
+const HerdrMetadataTokenName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,32}$/));
 
 /**
  * Environment variables supplied to a newly created Herdr process.
@@ -44,12 +45,15 @@ export const HerdrMetadataTokens = Schema.Record(Schema.String, Schema.String);
 export type HerdrMetadataTokens = typeof HerdrMetadataTokens.Type;
 
 /**
- * Metadata token updates where null removes the named token.
+ * Updates at most 16 metadata tokens; null removes a token. Names match `^[A-Za-z0-9_-]{1,32}$`.
  *
  * @category schemas
  * @since 0.8.2
  */
-export const HerdrMetadataTokenPatch = Schema.Record(Schema.String, Schema.NullOr(Schema.String));
+export const HerdrMetadataTokenPatch = Schema.Record(
+  Schema.String,
+  Schema.NullOr(Schema.String),
+).check(Schema.isMaxProperties(16), Schema.isPropertyNames(HerdrMetadataTokenName));
 
 /**
  * Metadata token updates where null removes the named token.

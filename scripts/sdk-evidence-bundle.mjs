@@ -213,7 +213,9 @@ export const resolveSdkEvidenceArtifact = Effect.fnUntraced(
   Effect.catchTag("PlatformError", () => Effect.fail(bundleError("storage"))),
 );
 
-/** Allocate a private unique directory outside the canonical repository; retain incomplete evidence on interruption. */
+/** Allocate a private unique directory outside the repository; retain committed incomplete evidence on interruption.
+ * Failed allocation cleanup remains a typed SdkEvidenceBundleError.
+ */
 export const createSdkEvidenceBundle = Effect.fnUntraced(
   function* (/** @type {{parentDirectory?:string, repositoryRoot:string}} */ options) {
     const fs = yield* FileSystem.FileSystem;
@@ -237,17 +239,18 @@ export const createSdkEvidenceBundle = Effect.fnUntraced(
           .pipe(Effect.as({ directory: ownedDirectory, id, createdAt })),
       (ownedDirectory, exit) =>
         Exit.isFailure(exit)
-          ? fs.remove(ownedDirectory, { recursive: true, force: true }).pipe(
-              Effect.mapError(() => bundleError("storage")),
-              Effect.orDie,
-            )
+          ? fs
+              .remove(ownedDirectory, { recursive: true, force: true })
+              .pipe(Effect.mapError(() => bundleError("storage")))
           : Effect.void,
     );
   },
   Effect.catchTag("PlatformError", () => Effect.fail(bundleError("storage"))),
 );
 
-/** Write a bounded relative artifact atomically; existing symlink parents cannot redirect writes. */
+/** Write a bounded relative artifact atomically; existing symlink parents cannot redirect writes.
+ * A typed cleanup failure can occur after publication; inspect the artifact before retrying.
+ */
 export const writeSdkEvidenceArtifact = Effect.fnUntraced(
   function* (/** @type {{directory:string,path:string,content:string|Uint8Array}} */ options) {
     const fs = yield* FileSystem.FileSystem;
@@ -275,10 +278,9 @@ export const writeSdkEvidenceArtifact = Effect.fnUntraced(
         .pipe(Effect.as(temporary)),
       (temporaryPath) => fs.rename(temporaryPath, destination),
       (temporaryPath) =>
-        fs.remove(temporaryPath, { force: true }).pipe(
-          Effect.mapError(() => bundleError("storage")),
-          Effect.orDie,
-        ),
+        fs
+          .remove(temporaryPath, { force: true })
+          .pipe(Effect.mapError(() => bundleError("storage"))),
     );
   },
   Effect.catchTag("PlatformError", () => Effect.fail(bundleError("storage"))),

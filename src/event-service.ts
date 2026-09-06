@@ -126,7 +126,12 @@ export const makeEventService = Effect.gen(function* () {
           const lifetimeSpan = yield* Effect.makeSpanScoped("EventService.subscribe");
           return Stream.unwrap(
             Effect.gen(function* () {
-              const parsedSubscriptions = yield* Effect.forEach(subscriptions, (subscription) =>
+              // Copy before yielding: parsing and type selection must see the same input,
+              // even if the caller changes its array or objects while the socket opens.
+              const snapshots = subscriptions.map((subscription) => ({ ...subscription }));
+              const selectedTypes: ReadonlyArray<(typeof subscriptions)[number]["type"]> =
+                snapshots.map((subscription) => subscription.type);
+              const parsedSubscriptions = yield* Effect.forEach(snapshots, (subscription) =>
                 decodeHerdrInput(
                   "EventService.subscribe",
                   parseEventSubscriptionSpec,
@@ -174,7 +179,7 @@ export const makeEventService = Effect.gen(function* () {
                   ),
                 ),
               );
-              return decodeHerdrEventStream(countedBytes, opened.requestId, subscriptions).pipe(
+              return decodeHerdrEventStream(countedBytes, opened.requestId, selectedTypes).pipe(
                 Stream.tap(() =>
                   Ref.update(eventsCount, (count) => Math.min(1_000_000_000, count + 1)),
                 ),
@@ -185,10 +190,12 @@ export const makeEventService = Effect.gen(function* () {
       ),
     wait: defineHerdrOperation("EventService.wait", (match, input = {}, options = {}) =>
       Effect.gen(function* () {
+        const snapshot = { ...match };
+        const selectedType: (typeof match)["type"] = snapshot.type;
         const parsedMatch = yield* decodeHerdrInput(
           "EventService.wait.match",
           parseEventMatch,
-          match,
+          snapshot,
         );
         const parsedInput = yield* decodeHerdrInput(
           "EventService.wait",
@@ -208,7 +215,7 @@ export const makeEventService = Effect.gen(function* () {
           response.result.event.data,
           response.requestId,
         );
-        if (isEventForMatch(event, match)) return event;
+        if (isEventForMatch(event, selectedType)) return event;
         return yield* new HerdrInvalidResponse(
           "schema_mismatch",
           response.requestId,
@@ -283,20 +290,18 @@ type HerdrEventStreamInput =
   | { readonly _tag: "Bytes"; readonly value: Uint8Array }
   | { readonly _tag: "End" };
 
-function decodeHerdrEventStream<
-  const Subscriptions extends readonly EventSubscriptionSpecEncoded[],
->(
+function decodeHerdrEventStream<const Type extends EventSubscriptionSpec["type"]>(
   bytes: Stream.Stream<Uint8Array, HerdrTransportError>,
   requestId: string,
-  subscriptions: Subscriptions,
-): Stream.Stream<EventForSubscription<Subscriptions[number]>, EventOperationError> {
+  selectedTypes: readonly Type[],
+): Stream.Stream<EventForSubscription<{ type: Type }>, EventOperationError> {
   const inputs: Stream.Stream<HerdrEventStreamInput, HerdrTransportError> = bytes.pipe(
     Stream.map((value) => ({ _tag: "Bytes", value }) as const),
     Stream.concat(Stream.succeed({ _tag: "End" } as const)),
   );
   return inputs.pipe(
     Stream.mapAccumArray(makeHerdrSocketLineBuffer, (state, input) =>
-      parseHerdrEventChunks(state, input, requestId, subscriptions),
+      parseHerdrEventChunks(state, input, requestId, selectedTypes),
     ),
     Stream.mapEffect((decoded) =>
       Result.match(decoded, {
@@ -307,22 +312,22 @@ function decodeHerdrEventStream<
   );
 }
 
-function parseHerdrEventChunks<const Subscriptions extends readonly EventSubscriptionSpecEncoded[]>(
+function parseHerdrEventChunks<const Type extends EventSubscriptionSpec["type"]>(
   state: HerdrSocketLineBuffer,
   inputs: readonly HerdrEventStreamInput[],
   requestId: string,
-  subscriptions: Subscriptions,
+  selectedTypes: readonly Type[],
 ): readonly [
   HerdrSocketLineBuffer,
   ReadonlyArray<
     Result.Result<
-      EventForSubscription<Subscriptions[number]>,
+      EventForSubscription<{ type: Type }>,
       HerdrInvalidResponse | HerdrTransportError | HerdrUnsupportedEvent
     >
   >,
 ] {
   const decodedEvents: Result.Result<
-    EventForSubscription<Subscriptions[number]>,
+    EventForSubscription<{ type: Type }>,
     HerdrInvalidResponse | HerdrTransportError | HerdrUnsupportedEvent
   >[] = [];
 
@@ -360,7 +365,7 @@ function parseHerdrEventChunks<const Subscriptions extends readonly EventSubscri
           decodedEvents.push(Result.fail(decoded.failure));
           return [makeHerdrSocketLineBuffer(), decodedEvents];
         }
-        if (isEventForSubscriptions(decoded.success, subscriptions)) {
+        if (isEventForSubscriptions(decoded.success, selectedTypes)) {
           decodedEvents.push(Result.succeed(decoded.success));
         }
       }
@@ -383,20 +388,18 @@ function eventDataWithType(envelope: EventEnvelope | SubscriptionEventEnvelope) 
   }
 }
 
-function isEventForSubscriptions<
-  const Subscriptions extends readonly EventSubscriptionSpecEncoded[],
->(
+function isEventForSubscriptions<const Type extends EventSubscriptionSpec["type"]>(
   event: HerdrEventValue,
-  subscriptions: Subscriptions,
-): event is EventForSubscription<Subscriptions[number]> {
-  return subscriptions.some((subscription) => subscription.type === event.type);
+  selectedTypes: readonly Type[],
+): event is EventForSubscription<{ type: Type }> {
+  return selectedTypes.some((type) => type === event.type);
 }
 
-function isEventForMatch<const Match extends EventMatchEncoded>(
+function isEventForMatch<const Type extends EventMatchValue["type"]>(
   event: HerdrEventValue,
-  match: Match,
-): event is EventForMatch<Match> {
-  return event.type === match.type;
+  selectedType: Type,
+): event is EventForMatch<{ type: Type }> {
+  return event.type === selectedType;
 }
 
 function encodeEventMatch(match: EventMatchValue) {

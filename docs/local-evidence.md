@@ -81,6 +81,23 @@ not just the process exit code. Product assertions, telemetry delivery, viewer p
 rendering, and cleanup answer different questions. An expected SDK error can support a passing
 scenario when assertions verify that error and its consequences.
 
+### Explicit CI artifact for PR review
+
+The `SDK verification` GitHub Actions workflow has a manual `evidence` input, off by default.
+For an explicitly requested review bundle, dispatch it against the PR branch:
+
+```sh
+gh workflow run sdk-verify.yml --ref BRANCH -f evidence=true
+```
+
+After full verification passes on Linux, that run collects the three fixture recipes
+`scoped-subscription`, `graphics-writer`, and `request-wire-result`, then uploads their bundles
+and the verification log as `sdk-review-evidence-COMMIT`. Link the downloadable Actions artifact
+in the PR. It expires after 30 days and GitHub may require sign-in to download it. Ordinary push
+and pull-request runs never upload evidence. No live Herdr, recording, or tracing is selected.
+Review the downloaded manifests and their independent outcomes before presenting the artifact
+as evidence; successful upload alone proves neither product behavior nor cleanup.
+
 ## Consume and review
 
 Replace `BUNDLE_DIRECTORY` with the directory returned by the run:
@@ -191,8 +208,8 @@ broader graphics or platform correctness. Telemetry
 sanitization does not sanitize video, terminal source recordings, screenshots, or narrative text.
 Cropping a video does not remove content from the raw recording.
 
-Review every artifact before sharing. No automatic upload, remote sharing service, or retention
-cleanup is supplied. Keep generated evidence outside the checkout and remove only directories you
+Review every artifact before sharing. Local evidence commands never upload. The explicitly
+selected CI artifact workflow above is the only supplied upload route; GitHub owns its retention. Keep generated evidence outside the checkout and remove only directories you
 own when no longer needed. Temporary-directory storage is not a durability guarantee.
 
 A final `evidence.json` is published after the review files. An interrupted initial run can retain

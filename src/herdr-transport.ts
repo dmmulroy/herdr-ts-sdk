@@ -35,6 +35,7 @@ import type { ResponseResult } from "./generated/wire-success-response.ts";
 import { parseHerdrWireResponse } from "./herdr-wire-parser.ts";
 import { encodeWireRequest, type HerdrWireParameters } from "./herdr-wire-encoder.ts";
 import { HerdrConfig, HerdrRequestDeadline, herdrConfigLayer } from "./herdr-config.ts";
+import type { HerdrAbsolutePath } from "./herdr-domain.ts";
 import {
   HerdrInvalidInput,
   HerdrInvalidResponse,
@@ -269,7 +270,7 @@ export const makeHerdrTransport = Effect.gen(function* () {
     method: Method,
     params: HerdrWireParameters<Method>,
     requestId: string,
-    deadline: Duration.Duration,
+    deadline: HerdrRequestDeadline,
   ): Effect.Effect<
     HerdrTransportSuccess<Method>,
     HerdrTransportRequestError | HerdrUnsupportedEvent
@@ -644,7 +645,7 @@ function isExpectedWireResult<Method extends WireMethod>(
 }
 
 function connectSocket(
-  socketPath: string,
+  socketPath: HerdrAbsolutePath,
   operation: TransportOperation,
   requestId: string,
 ): Effect.Effect<Socket, HerdrTransportError> {
@@ -868,11 +869,11 @@ function verifyProtocolCompatibility(
 }
 
 function exchangeWireLine(
-  socketPath: string,
+  socketPath: HerdrAbsolutePath,
   payload: string,
   operation: TransportOperation,
   requestId: string,
-  deadline: Duration.Duration,
+  deadline: HerdrRequestDeadline,
 ): Effect.Effect<unknown, HerdrTransportError | HerdrRequestTimeout | HerdrInvalidResponse> {
   const exchange = Effect.acquireUseRelease(
     connectSocket(socketPath, operation, requestId).pipe(Effect.interruptible),

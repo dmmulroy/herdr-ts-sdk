@@ -129,16 +129,12 @@ export const makeWorkspaceService = Effect.gen(function* () {
   const readWorkspace = defineHerdrOperation(
     "WorkspaceService.readWorkspace",
     (
-      operation: "workspace.get" | "workspace.focus" | "workspace.rename",
+      operation: "workspace.get" | "workspace.focus",
       id: WorkspaceId,
-      label: string | undefined,
       options: HerdrTransportRequestOptionsEncoded,
     ) =>
       Effect.gen(function* () {
-        const response =
-          operation === "workspace.rename"
-            ? yield* transport.request(operation, { workspaceId: id, label: label ?? "" }, options)
-            : yield* transport.request(operation, { workspaceId: id }, options);
+        const response = yield* transport.request(operation, { workspaceId: id }, options);
         return yield* decodeHerdrWire(
           parseWorkspace,
           response.result.workspace,
@@ -189,10 +185,10 @@ export const makeWorkspaceService = Effect.gen(function* () {
       }),
     ),
     get: defineHerdrOperation("WorkspaceService.get", (id, options = {}) =>
-      readWorkspace("workspace.get", id, undefined, options),
+      readWorkspace("workspace.get", id, options),
     ),
     focus: defineHerdrOperation("WorkspaceService.focus", (id, options = {}) =>
-      readWorkspace("workspace.focus", id, undefined, options),
+      readWorkspace("workspace.focus", id, options),
     ),
     rename: defineHerdrOperation("WorkspaceService.rename", (id, label, options = {}) =>
       Effect.gen(function* () {
@@ -201,7 +197,16 @@ export const makeWorkspaceService = Effect.gen(function* () {
           parseWorkspaceLabel,
           label,
         );
-        return yield* readWorkspace("workspace.rename", id, parsedLabel, options);
+        const response = yield* transport.request(
+          "workspace.rename",
+          { workspaceId: id, label: parsedLabel },
+          options,
+        );
+        return yield* decodeHerdrWire(
+          parseWorkspace,
+          response.result.workspace,
+          response.requestId,
+        );
       }),
     ),
     move: defineHerdrOperation("WorkspaceService.move", (id, input, options = {}) =>

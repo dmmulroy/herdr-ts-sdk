@@ -1,4 +1,4 @@
-import { Deferred, Effect, Exit, Fiber, FileSystem } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, PlatformError } from "effect";
 import { expect, test } from "vite-plus/test";
 import path from "node:path";
 import {
@@ -12,6 +12,7 @@ import {
   type SdkEvidenceManifest,
 } from "./sdk-evidence-bundle.mjs";
 import { runSdkToolingTest } from "./sdk-tooling-test-runtime.ts";
+import { runVerificationCommand } from "./sdk-verification-process.mjs";
 
 const repositoryRoot = process.cwd();
 const fixtureManifest = (bundle: { id: string; createdAt: string }): SdkEvidenceManifest => ({
@@ -327,19 +328,59 @@ test("oversized and malformed stored manifests fail bounded inspection", (contex
     }),
   ));
 
-test("source fingerprint records explicit dirty bytes, never repository absolute paths", (context) =>
+test("source fingerprint distinguishes an owned clean checkout from changed and untracked bytes", (context) =>
   runSdkToolingTest(
     context,
     Effect.gen(function* () {
-      const source = yield* fingerprintSdkEvidenceSource({
-        repositoryRoot,
-        files: ["scripts/sdk-evidence-bundle.mjs"],
-      });
-      expect(source.dirty).toBe(true);
-      expect(source.fingerprint).toMatch(/^[0-9a-f]{64}$/);
-      expect(source.files).toEqual(["scripts/sdk-evidence-bundle.mjs"]);
-      expect(JSON.stringify(source)).not.toContain(repositoryRoot);
-      expect(source.limitations.join(" ")).toContain("not an atomic snapshot");
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "evidence-source-" });
+      const git = (args: readonly string[]) =>
+        runVerificationCommand("git", ["-C", directory, ...args], {
+          capture: true,
+          env: {
+            GIT_CONFIG_NOSYSTEM: "1",
+            GIT_CONFIG_GLOBAL: path.join(directory, "no-global-config"),
+          },
+        });
+      yield* fs.writeFileString(path.join(directory, "source.txt"), "original\n");
+      for (const args of [
+        ["init"],
+        ["add", "source.txt"],
+        [
+          "-c",
+          "user.name=Evidence Fixture",
+          "-c",
+          "user.email=fixture@example.invalid",
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "-m",
+          "fixture",
+        ],
+      ]) {
+        const result = yield* git(args);
+        expect(result.status, result.output).toBe("pass");
+      }
+      const capture = () =>
+        fingerprintSdkEvidenceSource({ repositoryRoot: directory, files: ["source.txt"] });
+      const clean = yield* capture();
+      expect(clean.dirty).toBe(false);
+      yield* fs.writeFileString(path.join(directory, "source.txt"), "changed\n");
+      const changed = yield* capture();
+      expect(changed.dirty).toBe(true);
+      expect(changed.fingerprint).not.toBe(clean.fingerprint);
+      expect(changed.revision).toBe(clean.revision);
+      yield* fs.writeFileString(path.join(directory, "source.txt"), "original\n");
+      yield* fs.writeFileString(path.join(directory, "untracked.txt"), "untracked\n");
+      const untracked = yield* capture();
+      expect(untracked.dirty).toBe(true);
+      expect(untracked.fingerprint).toBe(clean.fingerprint);
+      for (const source of [clean, changed, untracked]) {
+        expect(source.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+        expect(source.files).toEqual(["source.txt"]);
+        expect(JSON.stringify(source)).not.toContain(directory);
+        expect(source.limitations.join(" ")).toContain("not an atomic snapshot");
+      }
     }),
   ));
 
@@ -416,27 +457,89 @@ test("parallel allocations cannot collide and failed reference integrity never f
     }),
   ));
 
-test("interruption before the incomplete marker cleans only the new allocation", (context) =>
+test.for(["succeeds", "fails"] as const)(
+  "interruption before the incomplete marker preserves typed errors when cleanup %s",
+  (cleanup, context) =>
+    runSdkToolingTest(
+      context,
+      Effect.gen(function* () {
+        const { fs, parentDirectory, bundle } = yield* fixture;
+        const markerStarted = yield* Deferred.make<void>();
+        const writeFileString: typeof fs.writeFileString = (filePath, content, options) =>
+          path.basename(filePath) === "evidence.incomplete.json"
+            ? Deferred.succeed(markerStarted, undefined).pipe(Effect.andThen(Effect.never))
+            : fs.writeFileString(filePath, content, options);
+        const remove: typeof fs.remove = (filePath, options) =>
+          cleanup === "fails"
+            ? Effect.fail(
+                PlatformError.systemError({
+                  _tag: "PermissionDenied",
+                  module: "FileSystem",
+                  method: "remove",
+                  pathOrDescriptor: filePath,
+                  description: "secret-storage-error",
+                }),
+              )
+            : fs.remove(filePath, options);
+        const fiber = yield* createSdkEvidenceBundle({ repositoryRoot, parentDirectory }).pipe(
+          Effect.provideService(FileSystem.FileSystem, { ...fs, writeFileString, remove }),
+          Effect.forkScoped,
+        );
+        yield* Deferred.await(markerStarted);
+        yield* Fiber.interrupt(fiber);
+        const exit = yield* Fiber.await(fiber);
+        expect(Exit.isFailure(exit)).toBe(true);
+        // acquireUseRelease reports a failed release instead of the interrupted use.
+        expect(Exit.hasInterrupts(exit)).toBe(cleanup === "succeeds");
+        expect(Exit.hasDies(exit)).toBe(false);
+        if (Exit.isFailure(exit)) {
+          expect(exit.cause.reasons.filter(Cause.isFailReason).map(({ error }) => error)).toEqual(
+            cleanup === "fails"
+              ? [expect.objectContaining({ _tag: "SdkEvidenceBundleError", reason: "storage" })]
+              : [],
+          );
+        }
+        expect(JSON.stringify(exit)).not.toContain(parentDirectory);
+        expect(JSON.stringify(exit)).not.toContain("secret-storage-error");
+        const entries = yield* fs.readDirectory(parentDirectory);
+        expect(entries).toContain(bundle.id);
+        expect(entries).toHaveLength(cleanup === "fails" ? 2 : 1);
+        for (const entry of entries.filter((id) => id !== bundle.id)) {
+          expect(yield* fs.readDirectory(path.join(parentDirectory, entry))).toEqual([]);
+        }
+        expect(yield* fs.exists(path.join(bundle.directory, "evidence.incomplete.json"))).toBe(
+          true,
+        );
+      }),
+    ),
+);
+
+test("artifact cleanup failures remain typed even after publication succeeds", (context) =>
   runSdkToolingTest(
     context,
     Effect.gen(function* () {
-      const { fs, parentDirectory, bundle } = yield* fixture;
-      const markerStarted = yield* Deferred.make<void>();
-      const writeFileString: typeof fs.writeFileString = (filePath, content, options) =>
-        path.basename(filePath) === "evidence.incomplete.json"
-          ? Effect.gen(function* () {
-              yield* Deferred.succeed(markerStarted, undefined);
-              return yield* Effect.never;
-            })
-          : fs.writeFileString(filePath, content, options);
-      const fiber = yield* createSdkEvidenceBundle({ repositoryRoot, parentDirectory }).pipe(
-        Effect.provideService(FileSystem.FileSystem, { ...fs, writeFileString }),
-        Effect.forkScoped,
-      );
-      yield* Deferred.await(markerStarted);
-      yield* Fiber.interrupt(fiber);
-      expect(yield* fs.readDirectory(parentDirectory)).toEqual([bundle.id]);
+      const { fs, bundle } = yield* fixture;
+      const remove: typeof fs.remove = (filePath) =>
+        Effect.fail(
+          PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method: "remove",
+            pathOrDescriptor: filePath,
+            description: "secret-storage-error",
+          }),
+        );
+      const error = yield* writeSdkEvidenceArtifact({
+        directory: bundle.directory,
+        path: "scenario.json",
+        content: "{}",
+      }).pipe(Effect.provideService(FileSystem.FileSystem, { ...fs, remove }), Effect.flip);
+      expect(error).toMatchObject({ _tag: "SdkEvidenceBundleError", reason: "storage" });
+      expect(JSON.stringify(error)).not.toContain(bundle.directory);
+      expect(JSON.stringify(error)).not.toContain("secret-storage-error");
+      expect(yield* fs.readFileString(path.join(bundle.directory, "scenario.json"))).toBe("{}");
       expect(yield* fs.exists(path.join(bundle.directory, "evidence.incomplete.json"))).toBe(true);
+      expect(yield* fs.exists(path.join(bundle.directory, "evidence.json"))).toBe(false);
     }),
   ));
 
