@@ -20,7 +20,7 @@ import {
   type HerdrTransportRequestOptionsEncoded,
 } from "./herdr-transport.ts";
 
-const parseNotificationShowInput = Schema.decodeUnknownEffect(NotificationShowInput);
+const parseNotificationShowInput = Schema.decodeEffect(NotificationShowInput);
 const parseNotificationShowResult = Schema.decodeUnknownEffect(NotificationShowResult);
 
 /**

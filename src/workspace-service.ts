@@ -30,12 +30,12 @@ import {
 
 const parseWorkspace = Schema.decodeUnknownEffect(Workspace);
 const parseWorkspaces = Schema.decodeUnknownEffect(Schema.Array(Workspace));
-const parseWorkspaceCreateInput = Schema.decodeUnknownEffect(WorkspaceCreateInput);
+const parseWorkspaceCreateInput = Schema.decodeEffect(WorkspaceCreateInput);
 const parseWorkspaceCreateResult = Schema.decodeUnknownEffect(WorkspaceCreateResult);
-const parseWorkspaceLabel = Schema.decodeUnknownEffect(Schema.String);
-const parseWorkspaceMetadataReportInput = Schema.decodeUnknownEffect(WorkspaceMetadataReportInput);
-const parseWorkspaceMoveBlockInput = Schema.decodeUnknownEffect(WorkspaceMoveBlockInput);
-const parseWorkspaceMoveInput = Schema.decodeUnknownEffect(WorkspaceMoveInput);
+const parseWorkspaceLabel = Schema.decodeEffect(Schema.String);
+const parseWorkspaceMetadataReportInput = Schema.decodeEffect(WorkspaceMetadataReportInput);
+const parseWorkspaceMoveBlockInput = Schema.decodeEffect(WorkspaceMoveBlockInput);
+const parseWorkspaceMoveInput = Schema.decodeEffect(WorkspaceMoveInput);
 
 /**
  * Expected failure union for workspace protocol operations.

@@ -1,0 +1,72 @@
+name: SDK verification
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Full verification (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # Development tools have stricter engines than the package's Node >=20 runtime.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.16.0"
+      - name: Read package manager version from package source
+        id: package-manager
+        shell: bash
+        run: node -e 'const p=require("./package.json"); if(p.devEngines.packageManager.name!=="pnpm") process.exit(1); console.log("version="+p.devEngines.packageManager.version)' >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.package-manager.outputs.version }}
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run verify
+
+  package-platform:
+    name: Packed Node ${{ matrix.runtime }} (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        runtime: ["20.0.0", "22", "24"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.runtime }}
+      - name: Retain package runtime executable
+        id: runtime
+        shell: bash
+        run: node -e 'console.log("node="+process.execPath)' >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.16.0"
+      - name: Read package manager version from package source
+        id: package-manager
+        shell: bash
+        run: node -e 'const p=require("./package.json"); if(p.devEngines.packageManager.name!=="pnpm") process.exit(1); console.log("version="+p.devEngines.packageManager.version)' >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.package-manager.outputs.version }}
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      # Focused Windows coverage is intentional; this does not claim full Windows suite portability.
+      - run: pnpm run test:platform
+      - name: Check tarball imports under package runtime and declarations under development TypeScript
+        shell: bash
+        env:
+          PACKAGE_RUNTIME_NODE: ${{ steps.runtime.outputs.node }}
+        run: pnpm run check:package --runtime-node "$PACKAGE_RUNTIME_NODE"

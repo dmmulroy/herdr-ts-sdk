@@ -30,13 +30,13 @@ import {
   type HerdrTransportRequestOptionsEncoded,
 } from "./herdr-transport.ts";
 
-const parseWorktreeCreateInput = Schema.decodeUnknownEffect(WorktreeCreateInput);
+const parseWorktreeCreateInput = Schema.decodeEffect(WorktreeCreateInput);
 const parseWorktreeCreateResult = Schema.decodeUnknownEffect(WorktreeCreateResult);
-const parseWorktreeListInput = Schema.decodeUnknownEffect(WorktreeListInput);
+const parseWorktreeListInput = Schema.decodeEffect(WorktreeListInput);
 const parseWorktreeListResult = Schema.decodeUnknownEffect(WorktreeListResult);
-const parseWorktreeOpenInput = Schema.decodeUnknownEffect(WorktreeOpenInput);
+const parseWorktreeOpenInput = Schema.decodeEffect(WorktreeOpenInput);
 const parseWorktreeOpenResult = Schema.decodeUnknownEffect(WorktreeOpenResult);
-const parseWorktreeRemoveInput = Schema.decodeUnknownEffect(WorktreeRemoveInput);
+const parseWorktreeRemoveInput = Schema.decodeEffect(WorktreeRemoveInput);
 const parseWorktreeRemoveResult = Schema.decodeUnknownEffect(WorktreeRemoveResult);
 
 /**

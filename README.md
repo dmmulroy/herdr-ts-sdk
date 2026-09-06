@@ -622,24 +622,54 @@ catalog.
 
 ## Development
 
-This repository vendors the matching Effect source under `repos/effect/` as read-only reference
-material. Production code imports the installed `effect` package, never the vendored repository.
+Start with [AGENTS.md](AGENTS.md), the [architecture](docs/architecture.md), and the
+[agent workflow](docs/agent-workflow.md) for task-to-file/test navigation, learning routes,
+verification safety, and subagent handoffs. [package.json](package.json) is the command source of
+truth. The matching Effect source in `repos/effect/` is read-only reference material; production
+code imports the installed package, never vendored source.
+
+With dependencies already installed, run from the repository root:
 
 ```sh
-pnpm install
-pnpm run check
-pnpm test -- --run
-pnpm run build
+pnpm run doctor
+pnpm run verify:quick
+./node_modules/.bin/vitest run src/herdr-sdk.test.ts
+pnpm run verify
 ```
 
-- `pnpm run generate` regenerates private wire types from `schema/herdr-api.schema.json`.
-- `pnpm run check` formats, lints, typechecks, and compiles every example.
-- `pnpm test -- --run` runs the repository test suite once.
-- `pnpm run build` regenerates wire types and produces `dist/index.mjs` plus declarations.
+Quick verification checks formatting, lint, types, public docs, and examples. Full verification
+adds generated drift, runtime suites, and an isolated package consumer. See the
+[workflow command table](docs/agent-workflow.md#verification-commands) for focused checks and
+`pnpm run lab --list` for fixture-only executable learning recipes. For opt-in OpenTelemetry
+export, a loopback viewer, and agent-readable trace queries, follow
+[local tracing](docs/local-tracing.md). No SDK import starts telemetry or a viewer.
+For human-readable review pages, agent-readable evidence bundles, and opt-in terminal recordings,
+follow [local evidence](docs/local-evidence.md). The primary real-Herdr demonstration records
+actual SDK-driven tab/pane changes in a fresh disposable Herdr session:
 
-Generated snake-case wire contracts are private. The public entrypoint exports the Effect-native
-SDK, configuration, domain schemas, normalized models, typed errors, transport options, namespace
-services, constructors, and Layers.
+```sh
+node scripts/sdk-evidence.mjs run herdr-sdk-workflow --record
+```
+
+Selecting this scenario explicitly launches an isolated real session, never a developer's existing
+session. The installed binary must match the SDK protocol; use `--herdr-executable /absolute/path/to/herdr`
+to select a compatible binary without changing your normal installation. Fixture demonstrations
+remain available and are labeled separately.
+
+A globally managed `pnpm` launcher may bootstrap dependencies. For strict no-bootstrap checks,
+use `node scripts/sdk-doctor.mjs` and `node scripts/sdk-verify.mjs quick` (or `full` / `generated`).
+
+Normal tests never use live Herdr control; disposable real-Herdr integration is opt-in.
+Runtime tests do not check `.tst.ts` inference contracts;
+those require typechecking. Live [examples](examples/README.md) have explicit side effects and
+are not verification commands.
+
+`pnpm run check` checks formatting, lint, types, public docs, and examples without fixing files.
+Keep writing commands separate from shared-checkout verification: `pnpm run generate` rewrites
+private wire contracts from `schema/herdr-api.schema.json`, and `pnpm run build` regenerates before
+producing package output. Direct Vite+ formatting without `--check` and fixing with `--fix` also
+write files. Generated wire contracts
+remain private; [src/index.ts](src/index.ts) owns the public entrypoint.
 
 ## License
 

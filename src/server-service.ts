@@ -27,7 +27,7 @@ const parseAgentManifests = Schema.decodeUnknownEffect(Schema.Array(AgentManifes
 const parseAgentManifestStatus = Schema.decodeUnknownEffect(AgentManifestStatus);
 const parseConfigReloadResult = Schema.decodeUnknownEffect(ConfigReloadResult);
 const parsePingResult = Schema.decodeUnknownEffect(PingResult);
-const parseServerLiveHandoffInput = Schema.decodeUnknownEffect(ServerLiveHandoffInput);
+const parseServerLiveHandoffInput = Schema.decodeEffect(ServerLiveHandoffInput);
 
 /**
  * Expected failure union for server lifecycle and compatibility operations.

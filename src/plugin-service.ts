@@ -41,13 +41,13 @@ const parseInstalledPlugins = Schema.decodeUnknownEffect(Schema.Array(InstalledP
 const parsePluginActionInvocation = Schema.decodeUnknownEffect(PluginActionInvocation);
 const parsePluginActions = Schema.decodeUnknownEffect(Schema.Array(PluginAction));
 const parsePluginCommandLogs = Schema.decodeUnknownEffect(Schema.Array(PluginCommandLog));
-const parsePluginFilterInput = Schema.decodeUnknownEffect(PluginFilterInput);
-const parsePluginActionInvokeInput = Schema.decodeUnknownEffect(PluginActionInvokeInput);
-const parsePluginLinkInput = Schema.decodeUnknownEffect(PluginLinkInput);
-const parsePluginLogListInput = Schema.decodeUnknownEffect(PluginLogListInput);
+const parsePluginFilterInput = Schema.decodeEffect(PluginFilterInput);
+const parsePluginActionInvokeInput = Schema.decodeEffect(PluginActionInvokeInput);
+const parsePluginLinkInput = Schema.decodeEffect(PluginLinkInput);
+const parsePluginLogListInput = Schema.decodeEffect(PluginLogListInput);
 const parsePluginPane = Schema.decodeUnknownEffect(PluginPane);
 const parsePluginPaneCloseResult = Schema.decodeUnknownEffect(PluginPaneCloseResult);
-const parsePluginPaneOpenInput = Schema.decodeUnknownEffect(PluginPaneOpenInput);
+const parsePluginPaneOpenInput = Schema.decodeEffect(PluginPaneOpenInput);
 const parsePluginUnlinkResult = Schema.decodeUnknownEffect(PluginUnlinkResult);
 
 /**

@@ -16,7 +16,7 @@ import {
   type HerdrTransportRequestOptionsEncoded,
 } from "./herdr-transport.ts";
 
-const parseClientWindowTitle = Schema.decodeUnknownEffect(Schema.String);
+const parseClientWindowTitle = Schema.decodeEffect(Schema.String);
 const parseClientWindowTitleResult = Schema.decodeUnknownEffect(ClientWindowTitleResult);
 
 /**

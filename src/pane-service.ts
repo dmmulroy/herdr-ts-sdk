@@ -7,6 +7,7 @@
  */
 import { Buffer } from "node:buffer";
 import {
+  Clock,
   Context,
   Effect,
   Exit,
@@ -107,42 +108,42 @@ import {
 
 const parsePane = Schema.decodeUnknownEffect(Pane);
 const parsePanes = Schema.decodeUnknownEffect(Schema.Array(Pane));
-const parsePaneAgentReportInput = Schema.decodeUnknownEffect(PaneAgentReportInput);
-const parsePaneAgentSessionReportInput = Schema.decodeUnknownEffect(PaneAgentSessionReportInput);
-const parsePaneClearAgentAuthorityInput = Schema.decodeUnknownEffect(PaneClearAgentAuthorityInput);
-const parsePaneCurrentInput = Schema.decodeUnknownEffect(PaneCurrentInput);
+const parsePaneAgentReportInput = Schema.decodeEffect(PaneAgentReportInput);
+const parsePaneAgentSessionReportInput = Schema.decodeEffect(PaneAgentSessionReportInput);
+const parsePaneClearAgentAuthorityInput = Schema.decodeEffect(PaneClearAgentAuthorityInput);
+const parsePaneCurrentInput = Schema.decodeEffect(PaneCurrentInput);
 const parsePaneEdgesResult = Schema.decodeUnknownEffect(PaneEdgesResult);
-const parsePaneFocusDirectionInput = Schema.decodeUnknownEffect(PaneFocusDirectionInput);
+const parsePaneFocusDirectionInput = Schema.decodeEffect(PaneFocusDirectionInput);
 const parsePaneFocusDirectionResult = Schema.decodeUnknownEffect(PaneFocusDirectionResult);
-const parsePaneGraphicsFrame = Schema.decodeUnknownEffect(PaneGraphicsFrame);
-const parsePaneGraphicsFileFrame = Schema.decodeUnknownEffect(PaneGraphicsFileFrame);
+const parsePaneGraphicsFrame = Schema.decodeEffect(PaneGraphicsFrame);
+const parsePaneGraphicsFileFrame = Schema.decodeEffect(PaneGraphicsFileFrame);
 const parsePaneGraphicsInfo = Schema.decodeUnknownEffect(PaneGraphicsInfo);
-const parsePaneGraphicsLayerInput = Schema.decodeUnknownEffect(PaneGraphicsLayerInput);
-const parsePaneGraphicsSetFrame = Schema.decodeUnknownEffect(PaneGraphicsSetFrame);
-const parsePaneGraphicsStreamInput = Schema.decodeUnknownEffect(PaneGraphicsStreamInput);
-const parsePaneInput = Schema.decodeUnknownEffect(PaneInput);
-const parsePaneInputRoutingInput = Schema.decodeUnknownEffect(PaneInputRoutingInput);
-const parsePaneKeySequence = Schema.decodeUnknownEffect(HerdrKeySequence);
-const parsePaneLabel = Schema.decodeUnknownEffect(Schema.String);
+const parsePaneGraphicsLayerInput = Schema.decodeEffect(PaneGraphicsLayerInput);
+const parsePaneGraphicsSetFrame = Schema.decodeEffect(PaneGraphicsSetFrame);
+const parsePaneGraphicsStreamInput = Schema.decodeEffect(PaneGraphicsStreamInput);
+const parsePaneInput = Schema.decodeEffect(PaneInput);
+const parsePaneInputRoutingInput = Schema.decodeEffect(PaneInputRoutingInput);
+const parsePaneKeySequence = Schema.decodeEffect(HerdrKeySequence);
+const parsePaneLabel = Schema.decodeEffect(Schema.String);
 const parsePaneLayoutSnapshot = Schema.decodeUnknownEffect(PaneLayoutSnapshot);
-const parsePaneListInput = Schema.decodeUnknownEffect(PaneListInput);
-const parsePaneMetadataReportInput = Schema.decodeUnknownEffect(PaneMetadataReportInput);
-const parsePaneMoveInput = Schema.decodeUnknownEffect(PaneMoveInput);
+const parsePaneListInput = Schema.decodeEffect(PaneListInput);
+const parsePaneMetadataReportInput = Schema.decodeEffect(PaneMetadataReportInput);
+const parsePaneMoveInput = Schema.decodeEffect(PaneMoveInput);
 const parsePaneMoveResult = Schema.decodeUnknownEffect(PaneMoveResult);
 const parsePaneNeighborResult = Schema.decodeUnknownEffect(PaneNeighborResult);
 const parsePaneOutputMatchResult = Schema.decodeUnknownEffect(PaneOutputMatchResult);
 const parsePaneProcessInfo = Schema.decodeUnknownEffect(PaneProcessInfo);
-const parsePaneReadInput = Schema.decodeUnknownEffect(PaneReadInput);
+const parsePaneReadInput = Schema.decodeEffect(PaneReadInput);
 const parsePaneReadResult = Schema.decodeUnknownEffect(PaneReadResult);
-const parsePaneReleaseAgentInput = Schema.decodeUnknownEffect(PaneReleaseAgentInput);
-const parsePaneResizeInput = Schema.decodeUnknownEffect(PaneResizeInput);
+const parsePaneReleaseAgentInput = Schema.decodeEffect(PaneReleaseAgentInput);
+const parsePaneResizeInput = Schema.decodeEffect(PaneResizeInput);
 const parsePaneResizeResult = Schema.decodeUnknownEffect(PaneResizeResult);
-const parsePaneSplitInput = Schema.decodeUnknownEffect(PaneSplitInput);
-const parsePaneSwapInput = Schema.decodeUnknownEffect(PaneSwapInput);
+const parsePaneSplitInput = Schema.decodeEffect(PaneSplitInput);
+const parsePaneSwapInput = Schema.decodeEffect(PaneSwapInput);
 const parsePaneSwapResult = Schema.decodeUnknownEffect(PaneSwapResult);
-const parsePaneText = Schema.decodeUnknownEffect(Schema.String);
-const parsePaneWaitForOutputInput = Schema.decodeUnknownEffect(PaneWaitForOutputInput);
-const parsePaneZoomInput = Schema.decodeUnknownEffect(PaneZoomInput);
+const parsePaneText = Schema.decodeEffect(Schema.String);
+const parsePaneWaitForOutputInput = Schema.decodeEffect(PaneWaitForOutputInput);
+const parsePaneZoomInput = Schema.decodeEffect(PaneZoomInput);
 const parsePaneZoomResult = Schema.decodeUnknownEffect(PaneZoomResult);
 const MAX_GRAPHICS_ONE_SHOT_BYTES = 512 * 1024;
 const MAX_GRAPHICS_STREAM_FRAME_BYTES = 16 * 1024 * 1024;
@@ -977,6 +978,7 @@ function makePaneGraphicsWriter(
       onNone: () => baseParameters,
       onSome: (zIndex) => ({ ...baseParameters, zIndex }),
     });
+    const acquisitionSpan = yield* Effect.option(Effect.currentSpan);
     const socketScope = yield* Scope.fork(yield* Scope.Scope);
     const stream = yield* transport.openStream("pane.graphics.stream", parameters, options).pipe(
       Scope.provide(socketScope),
@@ -989,6 +991,20 @@ function makePaneGraphicsWriter(
       Option.none(),
     );
     const writerSemaphore = yield* Semaphore.make(1);
+
+    // Lock wait ends before frame work; permit release remains interruption-safe.
+    const withWriterPermit = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const writeSpan = yield* Effect.option(Effect.currentSpan);
+          if (Option.isSome(writeSpan) && Option.isSome(acquisitionSpan)) {
+            // A link records resource provenance without making an ended acquisition active.
+            writeSpan.value.addLinks([{ span: acquisitionSpan.value, attributes: {} }]);
+          }
+          yield* restore(writerSemaphore.take(1)).pipe(Effect.withSpan("herdr.graphics.lock.wait"));
+          return yield* restore(effect).pipe(Effect.ensuring(writerSemaphore.release(1)));
+        }),
+      );
 
     const finishReader = (error: PaneGraphicsStreamFailure): Effect.Effect<void> =>
       Ref.set(terminalFailure, Option.some(error)).pipe(
@@ -1031,14 +1047,30 @@ function makePaneGraphicsWriter(
             (reason) => reason._tag === "Fail" && reason.error._tag === "HerdrInvalidInput",
           )
             ? Effect.void
-            : closeWriter;
+            : Effect.gen(function* () {
+                const reason = exit.cause.reasons.some((reason) => reason._tag === "Interrupt")
+                  ? "interrupted"
+                  : exit.cause.reasons.some(
+                        (reason) =>
+                          reason._tag === "Fail" && reason.error._tag === "HerdrRequestTimeout",
+                      )
+                    ? "timeout"
+                    : "failure";
+                const span = yield* Effect.option(Effect.currentSpan);
+                if (Option.isSome(span)) {
+                  span.value.event("herdr.graphics.invalidated", yield* Clock.currentTimeNanos, {
+                    "herdr.reason": reason,
+                  });
+                }
+                yield* closeWriter;
+              });
         }),
       );
 
     return {
       paneId,
       write: defineHerdrOperation("PaneService.graphics.write", (frame, writeOptions = {}) =>
-        writerSemaphore.withPermit(
+        withWriterPermit(
           Effect.gen(function* () {
             yield* failIfClosed;
             const parsed = yield* decodeGraphicsFrame(
@@ -1070,7 +1102,7 @@ function makePaneGraphicsWriter(
       writeFile: defineHerdrOperation(
         "PaneService.graphics.writeFile",
         (frame, writeOptions = {}) =>
-          writerSemaphore.withPermit(
+          withWriterPermit(
             Effect.gen(function* () {
               yield* failIfClosed;
               const parsed = yield* parsePaneGraphicsFileFrame(frame).pipe(
@@ -1105,7 +1137,7 @@ function makePaneGraphicsWriter(
                   );
                 }
                 return response.value;
-              });
+              }).pipe(Effect.withSpan("herdr.graphics.ack.wait"));
               return yield* transport
                 .writeStreamBytes(
                   stream,

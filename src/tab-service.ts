@@ -28,11 +28,11 @@ import {
 
 const parseTab = Schema.decodeUnknownEffect(Tab);
 const parseTabs = Schema.decodeUnknownEffect(Schema.Array(Tab));
-const parseTabCreateInput = Schema.decodeUnknownEffect(TabCreateInput);
+const parseTabCreateInput = Schema.decodeEffect(TabCreateInput);
 const parseTabCreateResult = Schema.decodeUnknownEffect(TabCreateResult);
-const parseTabLabel = Schema.decodeUnknownEffect(Schema.String);
-const parseTabListInput = Schema.decodeUnknownEffect(TabListInput);
-const parseTabMoveInput = Schema.decodeUnknownEffect(TabMoveInput);
+const parseTabLabel = Schema.decodeEffect(Schema.String);
+const parseTabListInput = Schema.decodeEffect(TabListInput);
+const parseTabMoveInput = Schema.decodeEffect(TabMoveInput);
 
 /**
  * Tab lifecycle, ordering, and focus capability.

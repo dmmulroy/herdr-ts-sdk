@@ -9,6 +9,10 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: ["repos/**"],
+    rules: {
+      "typescript/no-explicit-any": "error",
+      "typescript/no-non-null-assertion": "error",
+    },
     options: {
       typeAware: true,
       typeCheck: true,

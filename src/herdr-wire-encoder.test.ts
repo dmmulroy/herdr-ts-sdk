@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { FastCheck } from "effect/testing";
 import { expect, test } from "vite-plus/test";
+import { runHerdrTest } from "./herdr-test-runtime.ts";
 import {
   HerdrAbsolutePath,
   HerdrSdk,
@@ -28,89 +29,91 @@ const dictionaryKeys = [
 ];
 const fixtureDictionary = Object.fromEntries(dictionaryKeys.map((key) => [key, "fixture"]));
 
-test("SDK preserves environment and metadata dictionary keys on the socket", async () => {
-  const server = await startHerdrTestServer(makeHerdrSuccessResponse);
-  // Metadata names are protocol-restricted; environment names have no such restriction.
-  const tokens = {
-    ...Object.fromEntries(
-      dictionaryKeys
-        .filter((key) => /^[A-Za-z0-9_-]{1,32}$/.test(key))
-        .map((key) => [key, "fixture"]),
-    ),
-    deletedToken: null,
-  };
-  // The public schema restricts state labels to the five known agent statuses.
-  const stateLabels = {
-    idle: "Idle",
-    working: "Working",
-    blocked: "Blocked",
-    done: "Done",
-    unknown: "Unknown",
-  };
-  try {
-    await Effect.runPromise(
+test("SDK preserves environment and metadata dictionary keys on the socket", (context) =>
+  runHerdrTest(
+    context,
+    Effect.scoped(
       Effect.gen(function* () {
-        const sdk = yield* HerdrSdk;
-        yield* sdk.workspaces.create({ env: fixtureDictionary });
-        yield* sdk.workspaces.reportMetadata(WorkspaceId.make("workspace-1"), {
-          source: "fixture",
-          tokens,
-        });
-        yield* sdk.panes.reportMetadata(PaneId.make("pane-1"), {
-          source: "fixture",
-          tokens,
-          stateLabels,
-        });
-        yield* sdk.layouts.apply({
-          workspaceId: WorkspaceId.make("workspace-1"),
-          tabLabel: "Fixture",
+        const server = yield* startHerdrTestServer((request) =>
+          Effect.succeed(makeHerdrSuccessResponse(request)),
+        );
+        // Metadata names are protocol-restricted; environment names have no such restriction.
+        const tokens = {
+          ...Object.fromEntries(
+            dictionaryKeys
+              .filter((key) => /^[A-Za-z0-9_-]{1,32}$/.test(key))
+              .map((key) => [key, "fixture"]),
+          ),
+          deletedToken: null,
+        };
+        // The public schema restricts state labels to the five known agent statuses.
+        const stateLabels = {
+          idle: "Idle",
+          working: "Working",
+          blocked: "Blocked",
+          done: "Done",
+          unknown: "Unknown",
+        };
+        yield* Effect.gen(function* () {
+          const sdk = yield* HerdrSdk;
+          yield* sdk.workspaces.create({ env: fixtureDictionary });
+          yield* sdk.workspaces.reportMetadata(WorkspaceId.make("workspace-1"), {
+            source: "fixture",
+            tokens,
+          });
+          yield* sdk.panes.reportMetadata(PaneId.make("pane-1"), {
+            source: "fixture",
+            tokens,
+            stateLabels,
+          });
+          yield* sdk.layouts.apply({
+            workspaceId: WorkspaceId.make("workspace-1"),
+            tabLabel: "Fixture",
+            root: {
+              type: "split",
+              direction: "right",
+              ratio: 0.5,
+              first: { type: "pane", paneId: PaneId.make("pane-1"), env: fixtureDictionary },
+              second: { type: "pane", env: fixtureDictionary },
+            },
+          });
+        }).pipe(
+          Effect.provide(
+            herdrSdkLayerFromOptions({ socketPath: HerdrAbsolutePath.make(server.socketPath) }),
+          ),
+        );
+        const workspaceCreate = server.requests.find(
+          (request) => request.method === "workspace.create",
+        );
+        expect(workspaceCreate?.params.env).toStrictEqual(fixtureDictionary);
+        const workspaceMetadata = server.requests.find(
+          (request) => request.method === "workspace.report_metadata",
+        );
+        expect(workspaceMetadata?.params.tokens).toStrictEqual(tokens);
+        const paneMetadata = server.requests.find(
+          (request) => request.method === "pane.report_metadata",
+        );
+        expect(paneMetadata?.params.tokens).toStrictEqual(tokens);
+        expect(paneMetadata?.params.state_labels).toStrictEqual(stateLabels);
+        expect(paneMetadata?.params.pane_id).toBe("pane-1");
+        const layout = server.requests.find((request) => request.method === "layout.apply");
+        expect(layout?.params).toMatchObject({
+          workspace_id: "workspace-1",
+          tab_label: "Fixture",
           root: {
             type: "split",
-            direction: "right",
-            ratio: 0.5,
-            first: { type: "pane", paneId: PaneId.make("pane-1"), env: fixtureDictionary },
+            first: { type: "pane", pane_id: "pane-1", env: fixtureDictionary },
             second: { type: "pane", env: fixtureDictionary },
           },
         });
-      }).pipe(
-        Effect.provide(
-          herdrSdkLayerFromOptions({ socketPath: HerdrAbsolutePath.make(server.socketPath) }),
-        ),
-      ),
-    );
-    const workspaceCreate = server.requests.find(
-      (request) => request.method === "workspace.create",
-    );
-    expect(workspaceCreate?.params.env).toStrictEqual(fixtureDictionary);
-    const workspaceMetadata = server.requests.find(
-      (request) => request.method === "workspace.report_metadata",
-    );
-    expect(workspaceMetadata?.params.tokens).toStrictEqual(tokens);
-    const paneMetadata = server.requests.find(
-      (request) => request.method === "pane.report_metadata",
-    );
-    expect(paneMetadata?.params.tokens).toStrictEqual(tokens);
-    expect(paneMetadata?.params.state_labels).toStrictEqual(stateLabels);
-    expect(paneMetadata?.params.pane_id).toBe("pane-1");
-    const layout = server.requests.find((request) => request.method === "layout.apply");
-    expect(layout?.params).toMatchObject({
-      workspace_id: "workspace-1",
-      tab_label: "Fixture",
-      root: {
-        type: "split",
-        first: { type: "pane", pane_id: "pane-1", env: fixtureDictionary },
-        second: { type: "pane", env: fixtureDictionary },
-      },
-    });
-    if (layout?.params.root.type !== "split")
-      throw new Error("Wire encoder test expected a split layout");
-    expect(layout.params.root.first).toHaveProperty("env", fixtureDictionary);
-    expect(Object.getPrototypeOf(fixtureDictionary)).toBe(Object.prototype);
-    expect(Object.hasOwn(fixtureDictionary, "__proto__")).toBe(true);
-  } finally {
-    await server.close();
-  }
-});
+        if (layout?.params.root.type !== "split")
+          throw new Error("Wire encoder test expected a split layout");
+        expect(layout.params.root.first).toHaveProperty("env", fixtureDictionary);
+        expect(Object.getPrototypeOf(fixtureDictionary)).toBe(Object.prototype);
+        expect(Object.hasOwn(fixtureDictionary, "__proto__")).toBe(true);
+      }),
+    ),
+  ));
 
 test("arbitrary dictionary keys round-trip without prototype mutation or protocol-key conversion", () => {
   FastCheck.assert(

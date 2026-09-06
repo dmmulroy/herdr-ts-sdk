@@ -27,10 +27,10 @@ import {
   type HerdrTransportRequestOptionsEncoded,
 } from "./herdr-transport.ts";
 
-const parseLayoutApplyInput = Schema.decodeUnknownEffect(LayoutApplyInput);
+const parseLayoutApplyInput = Schema.decodeEffect(LayoutApplyInput);
 const parseLayoutDescription = Schema.decodeUnknownEffect(LayoutDescription);
-const parseLayoutSetSplitRatioInput = Schema.decodeUnknownEffect(LayoutSetSplitRatioInput);
-const parseLayoutTarget = Schema.decodeUnknownEffect(LayoutTarget);
+const parseLayoutSetSplitRatioInput = Schema.decodeEffect(LayoutSetSplitRatioInput);
+const parseLayoutTarget = Schema.decodeEffect(LayoutTarget);
 
 /**
  * Declarative layout export, application, and split-ratio capability.

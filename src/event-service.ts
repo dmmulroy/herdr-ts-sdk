@@ -5,7 +5,19 @@
  *
  * @since 0.8.2
  */
-import { Context, Effect, Layer, Option, Result, Schema, Stream } from "effect";
+import {
+  Clock,
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Ref,
+  Result,
+  Schema,
+  Stream,
+  Tracer,
+} from "effect";
 import herdrApiSchema from "../schema/herdr-api.schema.json" with { type: "json" };
 import type { EventEnvelope } from "./generated/wire-event.ts";
 import type { SubscriptionEventEnvelope } from "./generated/wire-subscription-event.ts";
@@ -54,9 +66,9 @@ const supportedEventKinds = new Set([
   ...herdrApiSchema.schemas.subscription_event.$defs.SubscriptionEventKind.enum,
 ]);
 const encodeEventSubscriptionSpec = Schema.encodeEffect(EventSubscriptionSpec);
-const parseEventMatch = Schema.decodeUnknownEffect(EventMatch);
-const parseEventSubscriptionSpec = Schema.decodeUnknownEffect(EventSubscriptionSpec);
-const parseEventWaitInput = Schema.decodeUnknownEffect(EventWaitInput);
+const parseEventMatch = Schema.decodeEffect(EventMatch);
+const parseEventSubscriptionSpec = Schema.decodeEffect(EventSubscriptionSpec);
+const parseEventWaitInput = Schema.decodeEffect(EventWaitInput);
 const parseHerdrEvent = Schema.decodeUnknownEffect(HerdrEvent);
 
 /**
@@ -110,20 +122,67 @@ export const makeEventService = Effect.gen(function* () {
     subscribe: (subscriptions, options = {}) =>
       Stream.unwrap(
         Effect.gen(function* () {
-          const parsedSubscriptions = yield* Effect.forEach(subscriptions, (subscription) =>
-            decodeHerdrInput("EventService.subscribe", parseEventSubscriptionSpec, subscription),
-          );
-          const encodedSubscriptions = yield* Effect.forEach(parsedSubscriptions, (subscription) =>
-            encodeEventSubscriptionSpec(subscription).pipe(Effect.orDie),
-          );
-          const opened = yield* transport.openStream(
-            "events.subscribe",
-            { subscriptions: encodedSubscriptions },
-            options,
-          );
-          return decodeHerdrEventStream(opened.readBytes, opened.requestId, subscriptions);
+          // Unlike Channel.withSpan, this span ends after scope finalizers on failure too.
+          const lifetimeSpan = yield* Effect.makeSpanScoped("EventService.subscribe");
+          return Stream.unwrap(
+            Effect.gen(function* () {
+              const parsedSubscriptions = yield* Effect.forEach(subscriptions, (subscription) =>
+                decodeHerdrInput(
+                  "EventService.subscribe",
+                  parseEventSubscriptionSpec,
+                  subscription,
+                ),
+              );
+              const encodedSubscriptions = yield* Effect.forEach(
+                parsedSubscriptions,
+                (subscription) => encodeEventSubscriptionSpec(subscription).pipe(Effect.orDie),
+              );
+              const bytesCount = yield* Ref.make(0);
+              const eventsCount = yield* Ref.make(0);
+              // Registered before socket acquisition: report close only after its cleanup.
+              yield* Effect.addFinalizer((exit) =>
+                Effect.gen(function* () {
+                  const outcome = Exit.isSuccess(exit)
+                    ? "success"
+                    : Exit.hasInterrupts(exit)
+                      ? "interrupted"
+                      : "failure";
+                  const attributes = {
+                    "herdr.outcome": outcome,
+                    "herdr.bytes.count": yield* Ref.get(bytesCount),
+                    "herdr.events.count": yield* Ref.get(eventsCount),
+                  };
+                  for (const [key, value] of Object.entries(attributes))
+                    lifetimeSpan.attribute(key, value);
+                  lifetimeSpan.event(
+                    "herdr.subscription.closed",
+                    yield* Clock.currentTimeNanos,
+                    attributes,
+                  );
+                }),
+              );
+              const opened = yield* transport.openStream(
+                "events.subscribe",
+                { subscriptions: encodedSubscriptions },
+                options,
+              );
+              lifetimeSpan.event("herdr.subscription.accepted", yield* Clock.currentTimeNanos);
+              const countedBytes = opened.readBytes.pipe(
+                Stream.tap((bytes) =>
+                  Ref.update(bytesCount, (count) =>
+                    Math.min(1_000_000_000, count + bytes.byteLength),
+                  ),
+                ),
+              );
+              return decodeHerdrEventStream(countedBytes, opened.requestId, subscriptions).pipe(
+                Stream.tap(() =>
+                  Ref.update(eventsCount, (count) => Math.min(1_000_000_000, count + 1)),
+                ),
+              );
+            }),
+          ).pipe(Stream.provideService(Tracer.ParentSpan, lifetimeSpan));
         }),
-      ).pipe(Stream.withSpan("EventService.subscribe")),
+      ),
     wait: defineHerdrOperation("EventService.wait", (match, input = {}, options = {}) =>
       Effect.gen(function* () {
         const parsedMatch = yield* decodeHerdrInput(

@@ -1,14 +1,16 @@
 # Herdr SDK v1 parity ledger
 
-This ledger records the completed Effect-native v1 surface. An operation is complete only
-when its row names the production implementation and a passing public-seam test. Generated
-snake-case contracts remain private transport details.
+This ledger maps the Effect-native v1 surface to implementation and public-seam tests.
+Generated snake-case contracts remain private transport details. Use the named executable tests
+as evidence; this document is not a record of the latest verification run.
 
 Protocol rows establish public dispatch and a representative success path. Variant-sensitive
 behavior such as overloaded plugin results, recursive inputs, stream framing, teardown, and typed
 failure classification is tracked separately in the cross-cutting table.
 
-Every row is `covered`: the implementation and named public-seam tests pass.
+`covered` means a named test exercises the stated dispatch or behavior, not that every variant,
+fault schedule, operating system, or resource lifetime is proven. Lifecycle confidence comes from
+focused failure/cleanup tests and repeated synchronized scenarios, separately from dispatch breadth.
 
 ## Protocol operations
 
@@ -109,32 +111,32 @@ Every row is `covered`: the implementation and named public-seam tests pass.
 
 ## Cross-cutting parity
 
-| Behavior                                                                                            | Rewrite owner             | Public-seam coverage                              | Status  |
-| --------------------------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------- | ------- |
-| Explicit options → `HERDR_SOCKET_PATH` → `HERDR_SESSION` → platform default precedence              | `src/herdr-config.ts`     | `src/herdr-config.test.ts`                        | covered |
-| Invalid selected configuration fails without fallback                                               | `src/herdr-config.ts`     | `src/herdr-config.test.ts`                        | covered |
-| Application-owned absolute-path, session-name, and popup-percentage filters                         | `src/herdr-domain.ts`     | `src/herdr-domain.test.ts`                        | covered |
-| Public input failures are classified before transport, including recursive layouts and split ratios | Service boundary parsers  | `src/herdr-input-boundaries.test.ts`              | covered |
-| Request ID generation and response correlation                                                      | `src/herdr-transport.ts`  | `src/herdr-transport.test.ts`                     | covered |
-| Recursive camel-case/snake-case conversion                                                          | `src/herdr-transport.ts`  | `src/herdr-transport.test.ts`                     | covered |
-| NDJSON framing, malformed JSON, and one-MiB line limit                                              | `src/herdr-transport.ts`  | `src/herdr-transport.test.ts`                     | covered |
-| Server error translation with open server codes                                                     | `src/herdr-transport.ts`  | `src/herdr-transport.test.ts`                     | covered |
-| Local request deadlines                                                                             | `src/herdr-transport.ts`  | `src/herdr-transport.test.ts`                     | covered |
-| Protocol-21 check and one shared memoized compatibility result                                      | `src/herdr-transport.ts`  | `src/herdr-transport.test.ts`                     | covered |
-| One-shot socket cleanup on success, failure, timeout, and interruption                              | `src/herdr-transport.ts`  | `src/herdr-transport.test.ts`                     | covered |
-| Event type normalization, subscription filtering, and generic narrowing                             | `src/event-service.ts`    | `src/event-service.test.ts`                       | covered |
-| Live-only subscription acceptance and snapshot-plus-buffer bootstrap                                | `src/event-service.ts`    | `src/event-service.test.ts`                       | covered |
-| Coalesced stream-handshake/event bytes and unsupported subscription events                          | `src/event-service.ts`    | `src/event-service.test.ts`                       | covered |
-| Cold event streams close sockets on completion, failure, and interruption                           | `src/herdr-transport.ts`  | `src/event-service.test.ts`                       | covered |
-| Graphics frame parsing, 512-KiB one-shot limit, and 16-MiB stream limit                             | `src/pane-service.ts`     | `src/pane-graphics.test.ts`                       | covered |
-| Graphics writer acquisition, writes, and scoped finalization                                        | `src/herdr-transport.ts`  | `src/pane-graphics.test.ts`                       | covered |
-| Layered BGRA graphics, capability metadata, direct-file frames, acknowledgements, and async errors  | `src/pane-service.ts`     | `src/pane-graphics.test.ts`                       | covered |
-| Graphics write deadline interrupts and destroys a backpressured stream socket                       | `src/herdr-transport.ts`  | `src/pane-graphics.test.ts`                       | covered |
-| Plugin pane placement/result overload correlation                                                   | `src/plugin-service.ts`   | `src/plugin-service.test.ts`                      | covered |
-| Independent namespace Layer requirements                                                            | Service modules           | `src/herdr-layers.tst.ts`                         | covered |
-| One shared configuration and transport in the root production graph                                 | `src/herdr-sdk.ts`        | `src/herdr-sdk.test.ts`                           | covered |
-| Stripe-style root caller inference                                                                  | `src/herdr-sdk.ts`        | `src/herdr-sdk.tst.ts`                            | covered |
-| Event and operation-specific error inference                                                        | Public service interfaces | `src/herdr-sdk.tst.ts`                            | covered |
-| Effect-native public package entrypoint                                                             | `src/index.ts`            | `src/herdr-sdk.test.ts`                           | covered |
-| Effect-native README examples                                                                       | `README.md`               | package build/typecheck                           | covered |
-| Root tooling excludes read-only `repos/effect/`                                                     | project configuration     | formatting, lint, typecheck, tests, package build | covered |
+| Behavior                                                                                            | Rewrite owner               | Public-seam coverage                                              | Status  |
+| --------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------- | ------- |
+| Explicit options → `HERDR_SOCKET_PATH` → `HERDR_SESSION` → platform default precedence              | `src/herdr-config.ts`       | `src/herdr-config.test.ts`                                        | covered |
+| Invalid selected configuration fails without fallback                                               | `src/herdr-config.ts`       | `src/herdr-config.test.ts`                                        | covered |
+| Application-owned absolute-path, session-name, and popup-percentage filters                         | `src/herdr-domain.ts`       | `src/herdr-domain.test.ts`                                        | covered |
+| Public input failures are classified before transport, including recursive layouts and split ratios | Service boundary parsers    | `src/herdr-input-boundaries.test.ts`                              | covered |
+| Request ID generation and response correlation                                                      | `src/herdr-transport.ts`    | `src/herdr-transport.test.ts`                                     | covered |
+| Method-indexed request encoding, recursive inputs, and opaque record key preservation               | `src/herdr-wire-encoder.ts` | `src/herdr-wire-encoder.test.ts`, `src/herdr-wire-encoder.tst.ts` | covered |
+| NDJSON framing, malformed JSON, and one-MiB line limit                                              | `src/herdr-transport.ts`    | `src/herdr-transport.test.ts`                                     | covered |
+| Server error translation with open server codes                                                     | `src/herdr-transport.ts`    | `src/herdr-transport.test.ts`                                     | covered |
+| Local request deadlines                                                                             | `src/herdr-transport.ts`    | `src/herdr-transport.test.ts`                                     | covered |
+| Protocol-21 check and one shared memoized compatibility result                                      | `src/herdr-transport.ts`    | `src/herdr-transport.test.ts`                                     | covered |
+| One-shot socket cleanup on success, failure, timeout, and interruption                              | `src/herdr-transport.ts`    | `src/herdr-transport.test.ts`                                     | covered |
+| Event type normalization, subscription filtering, and generic narrowing                             | `src/event-service.ts`      | `src/event-service.test.ts`                                       | covered |
+| Live-only subscription acceptance and snapshot-plus-buffer bootstrap                                | `src/event-service.ts`      | `src/event-service.test.ts`                                       | covered |
+| Coalesced stream-handshake/event bytes and unsupported subscription events                          | `src/event-service.ts`      | `src/event-service.test.ts`                                       | covered |
+| Cold event streams close sockets on completion, failure, and interruption                           | `src/herdr-transport.ts`    | `src/event-service.test.ts`                                       | covered |
+| Graphics frame parsing, 512-KiB one-shot limit, and 16-MiB stream limit                             | `src/pane-service.ts`       | `src/pane-graphics.test.ts`                                       | covered |
+| Graphics writer acquisition, writes, and scoped finalization                                        | `src/herdr-transport.ts`    | `src/pane-graphics.test.ts`                                       | covered |
+| Layered BGRA graphics, capability metadata, direct-file frames, acknowledgements, and async errors  | `src/pane-service.ts`       | `src/pane-graphics.test.ts`                                       | covered |
+| Graphics write deadline interrupts and destroys a backpressured stream socket                       | `src/herdr-transport.ts`    | `src/pane-graphics.test.ts`                                       | covered |
+| Plugin pane placement/result overload correlation                                                   | `src/plugin-service.ts`     | `src/plugin-service.test.ts`                                      | covered |
+| Independent namespace Layer requirements                                                            | Service modules             | `src/herdr-layers.tst.ts`                                         | covered |
+| One shared configuration and transport in the root production graph                                 | `src/herdr-sdk.ts`          | `src/herdr-sdk.test.ts`                                           | covered |
+| Stripe-style root caller inference                                                                  | `src/herdr-sdk.ts`          | `src/herdr-sdk.tst.ts`                                            | covered |
+| Event and operation-specific error inference                                                        | Public service interfaces   | `src/herdr-sdk.tst.ts`                                            | covered |
+| Effect-native public package entrypoint                                                             | `src/index.ts`              | `src/herdr-sdk.test.ts`                                           | covered |
+| Effect-native README examples                                                                       | `README.md`                 | package build/typecheck                                           | covered |
+| Root tooling excludes read-only `repos/effect/`                                                     | project configuration       | formatting, lint, typecheck, tests, package build                 | covered |

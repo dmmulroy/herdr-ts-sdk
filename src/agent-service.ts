@@ -45,17 +45,17 @@ import {
 const encodeAgentViewSetInput = Schema.encodeEffect(AgentViewSetInput);
 const parseAgent = Schema.decodeUnknownEffect(Agent);
 const parseAgents = Schema.decodeUnknownEffect(Schema.Array(Agent));
-const parseAgentPromptInput = Schema.decodeUnknownEffect(AgentPromptInput);
-const parseAgentStartInput = Schema.decodeUnknownEffect(AgentStartInput);
+const parseAgentPromptInput = Schema.decodeEffect(AgentPromptInput);
+const parseAgentStartInput = Schema.decodeEffect(AgentStartInput);
 const parseAgentStartResult = Schema.decodeUnknownEffect(AgentStartResult);
-const parseAgentTarget = Schema.decodeUnknownEffect(AgentTarget);
-const parseAgentViewClearInput = Schema.decodeUnknownEffect(AgentViewClearInput);
-const parseAgentViewSetInput = Schema.decodeUnknownEffect(AgentViewSetInput);
+const parseAgentTarget = Schema.decodeEffect(AgentTarget);
+const parseAgentViewClearInput = Schema.decodeEffect(AgentViewClearInput);
+const parseAgentViewSetInput = Schema.decodeEffect(AgentViewSetInput);
 const parseAgentViewState = Schema.decodeUnknownEffect(AgentViewState);
-const parseAgentWaitInput = Schema.decodeUnknownEffect(AgentWaitInput);
+const parseAgentWaitInput = Schema.decodeEffect(AgentWaitInput);
 const parseHerdrJsonValue = Schema.decodeUnknownEffect(HerdrJsonValue);
-const parseHerdrKeySequence = Schema.decodeUnknownEffect(HerdrKeySequence);
-const parsePaneReadInput = Schema.decodeUnknownEffect(PaneReadInput);
+const parseHerdrKeySequence = Schema.decodeEffect(HerdrKeySequence);
+const parsePaneReadInput = Schema.decodeEffect(PaneReadInput);
 const parsePaneReadResult = Schema.decodeUnknownEffect(PaneReadResult);
 
 /**

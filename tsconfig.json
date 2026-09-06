@@ -16,11 +16,13 @@
     "declaration": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "checkJs": true,
     "esModuleInterop": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["scripts/**/*.ts", "src/**/*.ts", "vite.config.ts"],
+  "include": ["scripts/**/*.ts", "scripts/**/*.mjs", "src/**/*.ts", "vite.config.ts"],
   "exclude": ["dist", "node_modules", "repos"]
 }

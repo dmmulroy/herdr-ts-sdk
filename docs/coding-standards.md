@@ -1,668 +1,204 @@
 # Coding Standards
 
-## Monorepo Boundaries
+These standards apply to the Effect-native Node SDK under `src/`, its `.mjs` tooling, and its
+fixture-based tests. This repository is one package: `src/index.ts` is the public entrypoint,
+`schema/herdr-api.schema.json` owns the wire contract, and generated snake-case types stay inside
+wire adapters. Read [architecture](architecture.md) before changing behavior and use
+[agent workflow](agent-workflow.md) to find the owning implementation and focused verification.
 
-Treat every workspace under `apps/*` as an independent runnable or deployable composition root.
-An app may depend on external packages and workspaces under `packages/*`; it must never import from,
-declare a workspace dependency on, or reach through a relative source path into another app. This
-rule applies to production code, scripts, and tests.
+## Boundary parsing and type evidence
 
-Workspaces under `packages/*` contain capabilities shared by apps and must not import from
-`apps/*`. Cross-app behavior goes through a real runtime interface such as HTTP, or through a
-shared package with an intentional public entrypoint. Cross-app end-to-end test support belongs in
-a package rather than importing one app's internals into another app or its tests.
+Parse public encoded inputs at the service operation that accepts them. Parse socket frames,
+server results, environment values, files, subprocess output, and other external representations at
+the adapter that owns them. Inner workflows receive domain or application values rather than raw
+wire objects.
 
-Keep code in its owning app while it has one consumer. When another app needs the same domain,
-application service, adapter, infrastructure lifecycle, test utility, or client capability, move
-that capability to a cohesive package and have both apps depend on it. Do not create a package
-only to anticipate hypothetical reuse.
+Choose the parser from the value's provenance:
 
-Apps should become thin entrypoints as shared capabilities emerge: retain process/runtime startup,
-framework wiring, app-specific configuration, and final Layer or dependency composition in the
-app; place reusable behavior behind package public entrypoints. This is an incremental direction,
-not a requirement to relocate existing app-local modules before another owner needs them.
+| Input evidence                                                                                          | Required handling                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Raw socket JSON, untyped process output, or another unknown external value                              | Decode from `unknown` at the owning adapter into the strongest meaningful type. Type declarations and generated wire types do not establish runtime integrity. |
+| A known encoded representation, such as a declared `*Encoded` input, environment string, or JSON string | Use a typed decoder for that representation and still validate its contents.                                                                                   |
+| An already established domain value                                                                     | Pass it through unchanged; preserve its type and avoid repeated parsing.                                                                                       |
+| A newly computed constrained value or patched state                                                     | Establish the new invariant with the owning schema constructor or refinement.                                                                                  |
 
-## Parse, Do Not Validate
+Preserve the precise domain, library, or platform type supplied by its owner. Never widen a known
+value to `unknown`, `object`, a primitive, or a generic record for implementation convenience, and
+never erase type evidence and assert it back later. Chained `as unknown as T` / `as any as T`,
+equivalent widen-then-assert flows, explicit `any`, and non-null assertions are prohibited escape
+hatches.
 
-Parse every value as soon as it crosses an I/O boundary. Treat HTTP, RPC, persistence,
-configuration, files, queues, platform APIs, and third-party clients as sources of untrusted
-external representations, even when TypeScript declarations claim otherwise.
+A type assertion is permitted only at the smallest unavoidable platform boundary after independent
+runtime evidence has established the invariant. The value must retain its original precise type;
+the assertion must not chain through `unknown` or `any`; and a safety comment must identify the
+platform limitation, runtime evidence, and focused verification. Redesign any assertion that cannot
+meet every condition.
 
-Parsing must return a validated, meaningful domain or application type. Do not perform a boolean
-validation check and then continue passing the original primitive, record, or transport type
-inward. Encode constraints in schemas, branded types, smart constructors, and discriminated unions
-so invalid states cannot enter inner modules.
+A field brand, `satisfies`, or a static type proves only what established it. It cannot prove a new
+range, cross-field relationship, or state transition. Keep the runtime refinement that owns that
+fact after representation translation. Do not encode an established domain value to JSON merely to
+parse it back into the same type.
 
-Construct each schema parser once at module scope beside its owning schema instead of constructing
-it inline at every boundary. Give the parser a domain-specific name and export it when other
-boundaries parse the same representation:
+For every parsing change, identify the producer, the evidence already established, the remaining
+invariants, and the validation removed, retained, or moved. A typed-decoder substitution can improve
+type evidence without removing runtime work; report those outcomes separately.
 
-```ts
-export const parseCreateIssueCommand = Schema.decodeUnknownEffect(CreateIssueCommand);
+## Parser APIs and public compatibility
 
-const command = yield * parseCreateIssueCommand(requestBody);
-return yield * issueService.createIssue(command);
-```
-
-Do not repeat inline constructions such as
-`Schema.decodeUnknownEffect(CreateIssueCommand)(requestBody)`. Reuse the schema-owned parser so
-callers share the same decoding behavior and can find every parse site by its domain-specific name.
-
-The Adapter that owns the boundary owns this translation and its parse errors. Domain Modules and
-Application Services accept parsed domain/application values and must not know about request
-payloads, database rows, environment strings, vendor records, or other boundary representations.
-When data leaves the application, encode rich values back into the exact external representation
-required by that boundary.
-
-## Preserve Established Type Information
-
-Treat types as evidence about where a value came from and which invariants have already been
-established. Preserve the strongest meaningful domain, application, library, or platform type
-available. A broader type is not safer when the value is already known; it discards evidence and
-moves mistakes from the compiler into runtime assumptions.
-
-Never widen a known value to `unknown`, `object`, a primitive, or `Record<string, unknown>` merely
-because a downstream implementation is easier to write against a broad type. This applies equally
-to project-owned domain values and values returned by typed libraries. Function parameters and
-return values state what the function actually accepts and produces, not the broadest structure its
-implementation could inspect:
+Instantiate reusable codecs once near their owning schema. Keep low-level unknown decoders private
+to the adapter unless callers genuinely need a public codec boundary. Application-facing parser
+functions have a domain name, the actual encoded input type, and a unary signature unless consumers
+need another domain input. A private codec may expose library parse options internally; the wrapper
+must expose only application-required arguments.
 
 ```ts
-// Wrong: discards the library's established operation contract.
-const transformOperation = (value: Record<string, unknown>): Record<string, unknown> => {
-  // ...
-};
+const decodeConfiguredSession = Schema.decodeEffect(HerdrSessionName);
 
-// Correct: preserves the type supplied by the owning library.
-const transformOperation = (operation: OpenApiOperation): OpenApiOperation => {
-  // ...
-};
-```
-
-Never erase a type and assert it back later. Chained assertions such as `value as unknown as T`,
-`value as any as T`, and equivalent multi-statement widening-and-casting sequences are prohibited.
-A type assertion does not parse, validate, or establish an invariant. If code deliberately loses
-type information and later reconstructs it with `as`, redesign the boundary.
-
-Reserve `unknown` for values that genuinely cross an untrusted runtime boundary, such as parsed
-JSON, HTTP or RPC input, persistence, configuration, files, queues, platform APIs, or untyped
-third-party callbacks. Do not expose application-owned functions with explicit `unknown`
-parameters. Define the expected Effect Schema and expose its decoder directly with
-`Schema.decodeUnknownEffect(ExpectedSchema)` so the unknown input exists only in the schema-owned
-boundary function. Values created by our code, returned by a typed API, or already parsed are not
-unknown. Do not widen them because the receiving API has an inconvenient signature.
-
-Parse genuinely unknown input once, at the nearest Adapter, I/O boundary, or composition root, into
-the strongest meaningful type. Convert every generic record into a strongly typed domain,
-application, protocol, or persistence type at the earliest possible point, as close as possible to
-the I/O boundary where the data originated. Inner modules receive the parsed type and must not
-repeatedly narrow, inspect, or assert the same external representation. Runtime `typeof` checks and
-generic object checks prove only incidental JavaScript representation facts; they do not parse the
-expected contract. Parse that contract directly with its schema, decoder, smart constructor, or
-other owning parser.
-
-Before introducing `unknown`, `object`, a generic record, a hand-written structural type, or a type
-assertion:
-
-1. Identify the value's provenance and whether it is actually untrusted at runtime.
-2. Search the owning domain module or library for its public type, schema, decoder, constructor, or
-   generic parameter.
-3. Preserve that type through function boundaries and use `satisfies`, explicit return types, or
-   typed constructors to check newly constructed values without widening them.
-4. If the source is genuinely untrusted, parse it at the boundary and pass only the parsed result
-   inward.
-5. If a library API is typed more broadly than the value it supplies, do not hide the mismatch with
-   a cast. Prefer a first-class API, a typed upstream fix or upgrade, an explicitly parsed boundary
-   adapter, or omission of unsupported behavior.
-
-A type assertion is permitted only at the smallest unavoidable platform boundary when the runtime
-invariant has already been established but TypeScript cannot express it. The value must not have
-been widened by our own code; the assertion must not chain through `unknown` or `any`; and the
-upstream limitation, runtime evidence, and focused verification must be documented. Convenience,
-framework folklore, and "this callback always passes that type" are not evidence.
-
-Treat the following as review blockers:
-
-- `as unknown as` or `as any as`;
-- a known domain or library value accepted or returned as `unknown`, `object`, or a generic record;
-- an assertion immediately following an explicit widening assignment;
-- repeated parsing or narrowing of a value that already crossed its owning boundary;
-- a generic record guard used in place of parsing the expected contract;
-- a local approximation of an available domain or library type;
-- an internal function returning `unknown` without introducing a new external boundary.
-
-The governing rule is: **preserve evidence already established, create evidence by parsing truly
-unknown input at its boundary, and never fabricate evidence with an assertion after throwing it
-away.**
-
-Enforce this policy with generic Oxlint rules rather than framework- or project-specific names:
-
-- `typescript/consistent-type-assertions` with `assertionStyle: "never"` rejects ordinary `as T`
-  and angle-bracket assertions while permitting `as const` and `satisfies`.
-- `typescript/no-unsafe-type-assertion` and `typescript/no-unnecessary-type-assertion` provide
-  type-aware diagnostics for unsafe narrowing and redundant assertions.
-- `typescript/no-explicit-any` and `typescript/no-non-null-assertion` reject common type-system
-  escape hatches.
-- `anti-slop/no-chained-type-assertions` identifies nested assertion chains and directs the caller
-  to preserve the original type or parse at the boundary.
-- `anti-slop/no-conditional-empty-object-spread` rejects conditional empty-object spreads and fixes
-  equivalent direct-property declarations.
-- `anti-slop/no-known-value-widening` conservatively detects syntactically established values
-  assigned or returned through explicit `unknown`, `object`, or generic-record annotations.
-- `anti-slop/no-record-type` rejects TypeScript `Record` utility types so each data contract keeps an
-  owner-provided or schema-derived type.
-- `anti-slop/no-runtime-typeof` rejects runtime `typeof` narrowing in favor of parsing the expected
-  contract.
-- `anti-slop/no-shape-in-symbol-names` rejects the term `shape` in symbol names so identifiers state
-  the concrete domain, protocol, or runtime concept they represent.
-- `anti-slop/no-unknown-parameters` rejects explicit `unknown` function parameters and directs I/O
-  adapters to expose `Schema.decodeUnknownEffect(ExpectedSchema)` instead.
-- `anti-slop/no-widen-then-assert` detects immutable local flows that erase a known type and later
-  reconstruct it with an assertion.
-
-Diagnostics for these rules must be agent-friendly: identify the lost type evidence or binding when
-available, explain why the operation is invalid, and state whether the correction is to preserve the
-precise type or parse genuinely unknown input at its boundary. JavaScript Oxlint plugins currently
-receive the Oxc AST and scope manager but not Oxlint's native type-checker results. Keep custom rules
-conservative: do not report imported values, typed call results, parser arguments, or cross-function
-flows when their provenance cannot be proven syntactically. A clean custom-lint result does not
-prove that library types were preserved; type-aware native rules and review still own semantic cases.
-
-## OpenAPI Contract Generation
-
-Effect HTTP API contracts are the source of truth for checked-in OpenAPI specifications. Annotate the contract before generation; never hand-edit generated OpenAPI JSON.
-
-- Add a safe, realistic schema example for every value a generated client must supply, especially branded IDs, names, request bodies, and lifecycle states. Never rely on importer placeholders such as `<string>`.
-- Add concise operation summaries and descriptions that explain identifier provenance and request ordering. When one operation creates an ID used by another, say that the ID comes from the create response; clients can then use request chaining instead of persisting an instance-specific ID.
-- Include representative success and public error examples for each operation state transition. Examples must conform to the same domain schema and stable error envelope that production serves.
-- Declare every response correlation header, including error responses, when the contract library supports response-header metadata. `X-Overseer-Request-Id` remains required at runtime and its API description must identify it as the support, log, and trace correlation ID. Do not widen or cast generated contract types to inject metadata the library does not model; omit that generated metadata, isolate an honestly parsed boundary adapter, or fix the capability upstream.
-- Document authentication schemes with their real header names and purpose. Verify a generated client import rather than assuming its authentication mapping is lossless.
-- Add only truthful server URLs. A local server URL is appropriate when stable; do not invent a production hostname.
-- Regenerate the specification with `vp run generate:openapi`, format it, and inspect the diff after every contract change.
-
-## Schema Testing
-
-Do not add tests that merely restate a schema's declared constraints with representative valid or
-invalid values. Schema libraries own their decoding mechanics, and the schema declaration itself is
-the specification for straightforward brands, structs, and unions.
-
-Add schema-focused tests only when they verify application-owned behavior beyond the declaration,
-such as a transformation, normalization, custom filter, compatibility contract, encoded/decoded
-round trip, or a previously regressed edge case. Test boundary behavior through the boundary's
-public interface when parsing failures produce caller-visible application or protocol outcomes.
-
-## Optional Values
-
-Represent every optional field, property, parameter, and return value with `Option.Option<A>`.
-
-Do not represent optional values inside the application as `null`, `undefined`, `A | null`, `A | undefined`, or optional object properties. Decode nullable or optional external input into `Option` at the boundary, and encode it back only when an external contract requires `null`, `undefined`, or an omitted property.
-
-```ts
-import { Option } from "effect";
-
-type Issue = {
-  body: Option.Option<string>;
-};
-
-const withBody = Option.some("Issue details");
-const withoutBody = Option.none<string>();
-```
-
-The `overseer/require-option-for-optional-values` lint rule enforces declaration surfaces in
-`src/domain` and `src/application` (and `*.domain.ts` / `*.application.ts` modules). Boundary,
-platform, generated, declaration, test, and fixture paths remain exempt because their contracts
-may require nullish values; convert those values where they enter an inner module.
-
-## Durable Object HTTP Boundary
-
-Treat each Durable Object as an independent HTTP service with an Effect HTTP API exposed through
-`fetch`.
-
-- Do not use typed Alchemy RPC.
-- Keep Durable Object bindings, namespaces, stubs, and `Cloudflare.toHttpClient` inside
-  composition roots and client implementations.
-- Expose only application-owned Effect client services such as `WorkspaceClient`, `ProjectClient`,
-  and `IssueClient` to the rest of the application.
-- Use the HTTP boundary to preserve the distinction between a Durable Object service and the Worker
-  or other Durable Objects, even when Cloudflare executes the call within the same broader runtime
-  environment.
-- Treat this as a logical service boundary, not necessarily a physical network boundary.
-
-### Client and Server Naming
-
-Use the following names for the HTTP boundary:
-
-```ts
-interface IWorkspaceClient {
-  readonly getWorkspace: (
-    id: WorkspaceId,
-  ) => Effect.Effect<Option.Option<Workspace>, GetWorkspaceError>;
+function parseConfiguredSession(
+  input: string,
+): Effect.Effect<HerdrSessionName, Schema.SchemaError> {
+  return decodeConfiguredSession(input);
 }
-
-class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspaceClient>()(
-  "@overseer/WorkspaceClient",
-) {}
-
-class WorkspaceServer extends Cloudflare.DurableObject<WorkspaceServer>()(
-  "WorkspaceServer",
-  workspaceServerImplementation,
-) {}
 ```
 
-- `IWorkspaceClient` is the application-facing client interface.
-- `WorkspaceClient` is the contextual Effect service that implements the client capability.
-- `WorkspaceServer` is the Alchemy Durable Object HTTP server.
-- Apply the same convention to `ProjectServer`/`IProjectClient` and `IssueServer`/`IIssueClient`.
-- Durable Object bindings, namespaces, and stubs remain implementation details of the client and
-  server modules.
-- Client constructors yield their corresponding Alchemy Durable Object service directly and close
-  over its namespace. Do not introduce a hand-written namespace interface or pass a namespace into
-  the constructor or Layer.
+`Schema.decodeEffect` requires the codec's exact `Encoded` type. Known provenance does not make a
+broader type assignable to a narrower encoded union: for example, a raw `string` is not a
+`Schema.Literals` encoded union. Define a codec whose encoded side truthfully matches the source, or
+retain an honest unknown decoder at the external boundary. Never cast or alias the value to force a
+typed decoder.
 
-### Execution-Scoped Durable Object HTTP Clients
-
-A Durable Object namespace may be resolved during Alchemy Init, but a stub and its generated HTTP
-client must be constructed within the current Worker or Durable Object invocation. Never retain a
-stub-backed client across invocation scopes: the canonical Durable Object ID selects the remote
-instance, but it does not extend the caller-side Cloudflare I/O context.
-
-Use Alchemy's execution memo together with an Effect `Cache` when one invocation may call multiple
-Durable Object instances. The execution memo owns the request lifetime; the cache keys clients by
-the canonical domain ID, joins concurrent first lookups, and reuses each generated client only
-within that invocation. Use an unbounded cache because the invocation scope itself bounds its
-lifetime. Suspend namespace lookup so Alchemy planning can construct the service without touching
-a runtime-only binding:
+At a raw socket boundary, `unknown` remains truthful and belongs on the private adapter decoder:
 
 ```ts
-const workspaceHttpClients =
-  yield *
-  makeExecutionMemo(
-    Cache.make<WorkspaceId, WorkspaceHttpClient>({
-      capacity: Number.POSITIVE_INFINITY,
-      lookup: (id) =>
-        Effect.suspend(() =>
-          HttpApiClient.makeWith(WorkspaceHttpApi, {
-            baseUrl: "http://workspace.internal",
-            httpClient: Cloudflare.toHttpClient(namespace.getByName(id)),
-          }),
-        ),
-    }),
-  );
+const decodeWorkspaceResponse = Schema.decodeUnknownEffect(Workspace);
 ```
 
-Keep keyed HTTP client selection private to the client constructor. Callers yield the contextual
-application client and invoke domain operations with canonical IDs; they never select, retain, or
-manage Durable Object stubs, generated HTTP clients, caches, or instance-bound facades. The
-contextual service exposes only its application-facing interface:
+This is not a blanket ban on decoder factories or `unknown`; provenance determines the correct API.
+The parser exports and schema constructors already exposed from `src/index.ts` are established
+public encoded-input contracts. Preserve their signatures and behavior unless an explicit public
+API migration is authorized. New internal parser cleanup must not silently narrow, remove, or
+replace those exports.
+
+## Public SDK and service boundaries
+
+Preserve the existing public constructors, encoded input aliases, service interfaces, and root SDK
+exports. Public operations accept the established encoded forms and parse them before protocol
+encoding. Generated snake-case request and response types remain private to
+`herdr-wire-encoder.ts`, `herdr-wire-parser.ts`, and the transport boundary.
+
+Each protocol namespace owns its interface, `Context.Service` class, constructor, dependency-
+preserving Layer, and ready production Layer. Keep requirements visible in
+`<capability>LayerWithoutDependencies`; select implementations with `Layer.provide` at the
+composition root. The exported `make<Capability>` constructors are intentional public SDK seams,
+including constructors that accept established options. Runtime composition normally uses Layers,
+but preserving these constructor exports takes precedence over copied rules from other projects.
+
+`HerdrSdk` aggregates the exact configured namespace service values and does not proxy every
+operation. Keep nested capabilities such as pane graphics and plugin resources parent-owned unless
+they gain an independent dependency or lifecycle.
+
+Represent ordinary internal absence with `Option` where the owning schema does so. Preserve
+optional properties and nullish representations in public encoded inputs and on the wire when the
+protocol requires them; translate at the service or wire boundary rather than changing the public
+contract.
+
+## Wire compatibility and representation precedence
+
+Select a current or compatibility representation from explicit protocol, version, discriminator,
+or source evidence before decoding. Once stronger current evidence is selected, malformed current
+data fails as `HerdrInvalidResponse`; it must not fall through to a weaker legacy interpretation or
+lose the raw correlation evidence needed to diagnose the response.
+
+The SDK does not own Herdr's persistence. If a future SDK cache or migration is introduced, its
+owner must preserve atomic updates, receipts, pending or uncertain external effects, tombstones,
+and compensation evidence. Generic storage annotations are not runtime validation, and malformed
+higher-priority data must not be rescued by lower-priority legacy data.
+
+## Effect workflows, failures, and resources
+
+Use `Effect.gen(function* () { ... })` or a generator-based `Effect.fn` for dependency retrieval,
+sequential effects, branching, loops, and named intermediate values. Use `.pipe(...)` for one pure
+result transform and cross-cutting policy such as error translation, timeout, tracing, retry, or
+Layer provision. Keep effect order and interruption behavior visible.
+
+Expected failures use the narrowest truthful tagged error union. Translate known tags explicitly
+when variants need different policy; use `Effect.mapError` when the complete source channel has one
+intentional meaning, as in schema-boundary classification. Preserve interruption and distinguish
+transport failure, timeout, malformed response, unsupported protocol/result/event, server rejection,
+and uncertain graphics writes. Read [error guidance](errors.md) when changing failures, while using
+Herdr SDK vocabulary and socket outcomes rather than HTTP or Overseer examples.
+
+Own sockets, event subscriptions, graphics writers, temporary directories, and child processes with
+`Scope` and acquisition/finalization. Ordinary requests use scoped acquisition around one socket.
+A timed-out or interrupted write invalidates its writer when the remote frame outcome is uncertain.
+Adapt unavoidable Node callbacks once at the edge; keep inner workflows Effect-native.
+
+Import stable Effect modules as named namespace exports from the `effect` package root:
 
 ```ts
-class WorkspaceClient extends Context.Service<WorkspaceClient, IWorkspaceClient>()(
-  "@overseer/WorkspaceClient",
-) {}
+import { Effect, Layer, Option, Schema } from "effect";
 ```
 
-The private client resolver reads the cache for the current invocation and ID. Public service
-operations call that resolver internally before invoking the generated protocol client. Do not
-expose this resolver through the service interface or as a static method on the service tag:
-
-```ts
-const workspaceHttpClient = (id: WorkspaceId) =>
-  Effect.flatMap(workspaceHttpClients, (clients) => Cache.get(clients, id));
-```
-
-Use the same pattern without `Cache` when a client has exactly one fixed target per invocation:
-`makeExecutionMemo` can memoize the single suspended client Effect directly. Do not substitute
-`Layer.suspend`, `Layer.unwrap`, an isolate-scoped Layer, or a global cache; those lifetimes still
-allow planning-time binding access or cross-invocation I/O reuse.
-
-### Durable Object Identity
-
-Every Durable Object instance must be keyed and accessed by its canonical domain ID.
-
-- `WorkspaceServer` instances use `WorkspaceId`.
-- `ProjectServer` instances use `ProjectId`.
-- `IssueServer` instances use `IssueId`.
-- Use the stable branded ID as the deterministic namespace key, never a display name or arbitrary
-  caller-provided label.
-- Client methods accept domain IDs; namespace lookup remains hidden inside the client implementation.
-
-### Versioned HTTP Endpoints
-
-- Every HTTP endpoint is versioned in its route, beginning with `/v1`.
-- Request, response, error, and persistence schema names do not need a version suffix.
-- Do not introduce unversioned aliases for versioned HTTP endpoints.
-
-## Effect Imports
-
-Import stable Effect modules as named namespace exports from the `effect` package root. Combine
-multiple stable modules in one declaration:
-
-```ts
-import { Config, Effect } from "effect";
-```
-
-Import unstable modules as named namespace exports from their narrow public package entrypoint:
-
-```ts
-import { HttpServerResponse } from "effect/unstable/http";
-```
-
-Do not use direct leaf-module namespace imports such as `import * as Effect from "effect/Effect"`.
-Use the same import form consistently in source files and tests.
-
-## Error Design
-
-Treat errors as product interfaces and observability data. Every error must explain what operation or outcome failed and give the most specific safe reason known. Tell the caller how to correct, retry, reconcile, or escalate the failure; provide reassurance only when the application can prove what was unaffected. Use calm, direct language without blame, jokes, generic fallback copy, or implementation jargon.
-
-Carry diagnostic context as typed fields rather than burying it in prose. Include the operation, safe domain identifiers, a classified reason, recovery or retry information, and a public request identifier where applicable. Public errors use stable literal codes and variant-specific detail schemas. Internal errors retain richer safe context and causes for traces while public adapters redact secrets and implementation details.
-
-Read [`docs/errors.md`](errors.md) before adding or changing typed errors, rendered error messages, public error schemas, HTTP error statuses, retry guidance, or failure telemetry. It is the source of truth for error principles, internal/public boundaries, contextual data, and the error review checklist.
-
-## Effect Workflow Style
-
-Use `Effect.gen(function* () { ... })` and `yield*` for business workflows. A generator is the
-default when an operation retrieves contextual services, performs multiple dependent steps, names
-intermediate results, branches, loops, or returns early. Keep those decisions visible as ordinary
-control flow instead of encoding them as chains of `Effect.map`, `Effect.flatMap`, or
-`Effect.andThen`.
-
-Use `.pipe(...)` for declarative composition around a workflow and for a single simple transform.
-Appropriate pipe combinators include error translation and recovery, retries, timeouts, tracing,
-logging annotations, dependency provision, Layer construction, and a direct `Effect.map` that does
-not introduce another Effectful step or business decision. Do not introduce a generator merely to
-replace one clear transformation.
-
-Combine the styles by keeping business logic inside and cross-cutting policy outside:
-
-```ts
-const fetchUserPosts = Effect.fn("UserService.fetchUserPosts")(
-  function* (userId: UserId) {
-    const database = yield* UserDatabase;
-    const cache = yield* UserCache;
-    const cachedPosts = yield* cache.getUserPosts(userId);
-
-    if (Option.isSome(cachedPosts)) return cachedPosts.value;
-
-    const posts = yield* database.findPostsByUser(userId);
-    yield* cache.setUserPosts(userId, posts);
-    return posts;
-  },
-  Effect.withSpan("UserService.fetchUserPosts"),
-  Effect.retry(userPostsRetryPolicy),
-);
-```
-
-When `Effect.fn` accepts whole-function transforms, pass pipeable cross-cutting combinators after
-the generator as shown. Within a generator, a yielded Effect may still use `.pipe(...)` for a
-localized error translation or simple result transform. If that pipe begins coordinating further
-Effectful operations or branching on domain outcomes, move the coordination into the surrounding
-generator.
-
-Apply this decision matrix:
-
-- dependency retrieval, sequential operations, and conditional business logic: `Effect.gen` or a
-  generator-based `Effect.fn`;
-- error handling, retry, timeout, tracing, logging, dependency provision, and Layer composition:
-  `.pipe(...)` or `Effect.fn` whole-function transforms;
-- one pure result transformation: `.pipe(Effect.map(...))`;
-- multiple dependent `map` / `flatMap` / `andThen` steps: rewrite as a generator so intermediate
-  values and control flow are explicit.
-
-## Effect Tagged Error Translation
-
-Prefer `Effect.catchTag` or `Effect.catchTags` when translating an error channel whose expected
-failures have `_tag` discriminants. List each known source error explicitly, preserve an
-already-correct application error by failing with that same value, and translate each boundary
-error according to its tag:
-
-```ts
-operation.pipe(
-  Effect.catchTags({
-    RegisterWorkspaceError: (error) => Effect.fail(error),
-    SchemaError: () =>
-      Effect.fail(
-        new RegisterWorkspaceError({
-          reason: "StoredDataInvalid",
-          message: "Bookkeeper failed to register Workspace",
-        }),
-      ),
-    SqlError: () =>
-      Effect.fail(
-        new RegisterWorkspaceError({
-          reason: "PersistenceFailed",
-          message: "Bookkeeper failed to register Workspace",
-        }),
-      ),
-  }),
-);
-```
-
-Do not use `instanceof` branches or a broad `Effect.mapError` to distinguish tagged expected
-failures. Do not add a catch-all translation that silently classifies future error types. Leaving
-an unhandled tag in the inferred error channel is intentional: a newly introduced failure must
-produce a type error until its translation policy is chosen. `Effect.mapError` remains appropriate
-when the complete error channel intentionally has one meaning and no tag-specific policy is being
-lost.
-
-When an `Effect.fn` whole-function transform is already a pipeable combinator, pass it directly.
-Do not wrap it in `(effect) => effect.pipe(...)`:
-
-```ts
-const registerWorkspace = Effect.fn("BookkeeperClient.registerWorkspace")(
-  function* (workspace: BookkeeperWorkspace) {
-    return yield* client.registerWorkspace(workspace);
-  },
-  Effect.catchTags({
-    RegisterWorkspaceError: (error) => Effect.fail(error),
-    SchemaError: () => Effect.fail(new RegisterWorkspaceError({ reason: "StoredDataInvalid" })),
-    HttpClientError: () => Effect.fail(new RegisterWorkspaceError({ reason: "PersistenceFailed" })),
-  }),
-);
-```
-
-Use a callback transform only when composing multiple combinators or when the transform needs the
-original function arguments.
-
-## Effect Service Dependencies in Layers
-
-When a Layer or framework builder depends on a contextual Effect service, yield that service inside
-the Effect that constructs the Layer's implementation. Keep the service in the Layer requirement
-channel until the composition root selects its implementation with `Layer.provide`.
-
-Export a Layer value with the dependency requirement instead of a factory that accepts the service
-as a plain function argument:
-
-```ts
-/** Bookkeeper HTTP handlers backed by the contextual Bookkeeper database. */
-export const bookkeeperHttpHandlersLayer = HttpApiBuilder.group(
-  BookkeeperHttpApi,
-  "bookkeeper",
-  (handlers) =>
-    Effect.gen(function* () {
-      const database = yield* BookkeeperDatabase;
-
-      return handlers.handle("getWorkspace", ({ params }) =>
-        database.getWorkspace(params.workspaceId),
-      );
-    }),
-);
-
-const configuredBookkeeperHttpHandlersLayer = bookkeeperHttpHandlersLayer.pipe(
-  Layer.provide(bookkeeperDatabaseLayer),
-);
-```
-
-Do not manually yield a contextual service in an outer Effect solely to pass it into a
-`make<CapabilityName>Layer(service)` function. Plain arguments remain appropriate for parsed request
-or domain values, external constructor options, and capabilities whose behavior is genuinely
-higher-order rather than an Effect service.
-
-Tests follow the same requirement channel: provide a faithful implementation with `Layer.succeed`
-or a test Layer, then provide that Layer to the dependency-preserving Layer under test.
-
-## Effect Service Modules
-
-### Service Constructor Locality
-
-Do not pass dependency-bearing constructor functions through application code or import them into
-runtime composition modules. In an Effect project, an exported free function named
-`make<CapabilityName>` is reserved for constructing the contextual service declared in the same
-capability module.
-
-The owning service module may use its constructor to define dependency-preserving and ready Layers.
-All non-test consumers import those Layers, yield the contextual service, and allow requirements to
-propagate to the composition root. They must not import or invoke the constructor directly. Only
-files matching the repository's test conventions (`*.test.*` and `*.spec.*`) may import an exported
-service constructor, and only when focused verification genuinely needs to exercise construction
-without the ready Layer.
-
-```ts
-// issue-service.ts
-export const makeIssueService = Effect.gen(function* () {
-  const issueStore = yield* IssueStore;
-  return IssueService.of({/* operations */});
-});
-
-export const issueServiceLayerWithoutDependencies = Layer.effect(IssueService, makeIssueService);
-
-// Runtime modules import the Layer and yield IssueService. They never import makeIssueService.
-```
-
-Do not introduce exported `make<X>` functions for dependency bundles, runtime registries, test
-harness capabilities, or alternate manual dependency injection. Model them as contextual services
-with Layers when they own capabilities or runtime state; keep genuinely pure construction local to
-its owning module or expose a domain-named operation that describes the value being derived rather
-than a generic constructor seam.
-
-Enforce this with a project lint rule that rejects project-local imports whose imported name matches
-`make[A-Z]` unless the importing file matches `*.test.*` or `*.spec.*`. The diagnostic should direct
-runtime callers to import the owning Layer and yield the contextual service. Library imports and
-schema-owned static constructors such as `WorkspaceName.make` are outside this rule.
-
-Put each new Effect service in a file named for its capability. Keep the service declaration and
-its construction in this order:
-
-1. The service shape interface.
-2. The contextual service class.
-3. The service constructor.
-4. The Layer that preserves dependency requirements.
-5. The ready production Layer that provides production dependencies.
-6. The ready test Layer that provides behaviorally faithful test dependencies.
-
-Every exported symbol must include the capability name rather than relying on its file path for
-context. Do not use `Tag` in symbol names. Name constructors `make<CapabilityName>` and use camel
-case for Layer values.
-
-A contextual service name does not have to end in `Service`. Use the shortest natural name for the
-stable capability. `IssueService` is a sensible default when `Service` honestly describes a broad,
-cohesive capability; a more specific established name such as `IssueStore` is preferable when it
-better describes the authority. Apply the same chosen capability name consistently to its interface,
-constructor, and Layers—for example, `IIssueStore`, `makeIssueStore`, `issueStoreLayer`, and
-`issueStoreTestLayer`.
-
-```ts
-/** Defines the Issue service capability exposed to application callers. */
-export interface IIssueService {
-  readonly findIssue: (id: IssueId) => Effect.Effect<Issue, IssueNotFound>;
-}
-
-/** Provides the contextual Issue service capability. */
-export class IssueService extends Context.Service<IssueService, IIssueService>()(
-  "@overseer/IssueService",
-) {}
-
-/** Constructs the Issue service while preserving its dependency requirements. */
-export const makeIssueService = Effect.gen(function* () {
-  const issueStore = yield* IssueStore;
-
-  return IssueService.of({
-    findIssue: Effect.fn("IssueService.findIssue")(function* (id: IssueId) {
-      return yield* issueStore.findIssue(id);
-    }),
-  });
-});
-
-/** Provides the Issue service without selecting dependency implementations. */
-export const issueServiceLayerWithoutDependencies = Layer.effect(IssueService, makeIssueService);
-
-/** Provides the Issue service with its production dependencies. */
-export const issueServiceLayer = issueServiceLayerWithoutDependencies.pipe(
-  Layer.provide(issueStoreLayer),
-);
-
-/** Provides the Issue service with behaviorally faithful test dependencies. */
-export const issueServiceTestLayer = issueServiceLayerWithoutDependencies.pipe(
-  Layer.provide(issueStoreTestLayer),
-);
-```
-
-`<capabilityName>LayerWithoutDependencies` does not mean that the service has no dependencies. It
-means the Layer leaves those requirements visible so callers or composition roots can provide
-them. `<capabilityName>Layer` selects the complete production dependency graph. If the service has
-no production dependencies, still export both canonical names and let the production Layer
-reference the dependency-preserving Layer.
-
-A `<capabilityName>TestLayer` must cross the same service interface as production and use complete,
-behaviorally honest test implementations. Do not add partial mocks or weaken production behavior
-solely to make the test Layer convenient.
+Use narrow public entrypoints for unstable modules. Confirm APIs against installed declarations;
+`repos/effect/` is read-only reference material and may represent a different revision.
+
+## Cohesion and complexity
+
+Use the repository's installed Vite+ lint configuration as the enforcement authority. This SDK has
+no documented project-specific numeric complexity ceiling or installed custom anti-slop plugin.
+Do not copy thresholds or rule catalogs from another repository.
+
+Reduce complexity by extracting cohesive domain, protocol, lifecycle, or resource responsibilities.
+An extraction must preserve precise input, success, error, and Effect requirement types plus effect
+and transaction order. A lower branch count, forwarding helper, speculative generic, dispatch
+table, option bag, suppression, or new service is not by itself a simpler design. Remove an option,
+helper, or export only after checking public entrypoints and external compatibility as well as local
+consumers.
+
+Read [slop-prevention proposals](slop-prevention.md) only when proposing parser-API lint, complexity
+policy, or unused-export tooling. That document records candidates and evidence requirements, not
+current enforcement.
+
+## Testing
+
+Test behavior through `HerdrSdk` or the owning service interface against isolated local socket
+fixtures. Replace dependencies with complete, behaviorally faithful service or Layer
+implementations that cross the same interface as production. Do not replace project modules with
+module mocks or use partial mocks that weaken production behavior. Tests must not use ambient
+sessions, personal panes, or a developer socket. Real-Herdr integration remains a separately
+selected, disposable-session workflow; examples are not verification.
+
+Add focused tests for application-owned transformations, normalization, compatibility, framing,
+resource cleanup, interruption, and previously regressed boundaries. Straightforward schema brands
+and structs do not need tests that merely repeat their declarations. Boundary failures should be
+tested through their public operation when they produce caller-visible errors.
+
+Parsing and compatibility changes require the applicable evidence:
+
+- valid current and compatibility representations;
+- malformed higher-priority data that is not rescued by weaker evidence;
+- independent cross-field or computed-invariant regressions;
+- the complete public parser function type when its contract changes: input, arity, success, error,
+  and Effect requirements; and
+- separate evidence for runtime work removed versus decoder/API renaming.
+
+Lifecycle tests preserve uncertain external mutation outcomes and use observable fixture gates
+rather than sleeps. A native process restart is stronger recovery evidence than reconstructing an
+in-memory service; state that limitation when only reconstruction was tested.
 
 ## Comments and JSDoc
 
-Every exported JavaScript or TypeScript symbol has JSDoc at its original declaration. A concise comment is sufficient when it states the sharpest caller-visible fact the signature cannot show. Use additional prose or tags only for further constraints, expected failures, side effects, ownership, invariants, trade-offs, non-obvious domain rules, or safety justifications.
+Every exported TypeScript or JavaScript symbol has JSDoc at its original declaration. Every public
+method and property of an exported class also has JSDoc. State the sharpest caller-visible fact the
+signature cannot show: invariants, ownership, resource lifetime, expected typed failures, side
+effects, or protocol compatibility. Re-exports rely on the original declaration.
 
-Names, public documentation, UI copy, and rendered errors use durable vocabulary appropriate to their audience. Use ordinary domain phrases readers are likely to search for when those phrases differ from an identifier's spelling. Keep ticket names, migration phases, internal storage fields, framework mechanics, and planning language in internal implementation or planning material.
+Use durable, searchable Herdr vocabulary in names, comments, and error messages. Keep generated
+wire spellings inside adapters and avoid generic names that hide the owning domain.
 
-Public methods and properties of an exported class also require JSDoc. Document private/internal code when safe maintenance depends on a non-obvious purpose, invariant, domain rule, side effect, trade-off, or safety justification.
+## Verification
 
-Document each original declaration once; re-exports rely on that documentation. Write explicit documentation in place of inheritance tags such as `@inheritDoc`.
-
-Attach `/** ... */` JSDoc directly to its declaration. Include tags when they add caller-relevant information:
-
-```ts
-/**
- * Parse and validate an email address at an external input boundary.
- *
- * @param input - Raw input received from outside the application.
- * @returns A validated email address, or `InvalidEmailAddress` when validation fails.
- */
-export function parseEmailAddress(input: string): Result<EmailAddress, InvalidEmailAddress>;
-```
-
-Add `@template` when a type parameter has a role or constraint the signature does not make clear:
-
-```ts
-/**
- * Map the success value of a result while preserving its error channel.
- *
- * @template E - Error channel preserved without invoking `fn`.
- * @param fn - Transforms the success value; it is skipped when `result` contains an error.
- * @returns A result containing the transformed success value or the original error.
- */
-export function mapResult<T, U, E>(result: Result<T, E>, fn: (value: T) => U): Result<U, E>;
-```
-
-Reserve `@throws` for unrecoverable defects, framework-required behavior, and temporary `notYetImplemented` paths. Describe expected typed errors in `@returns` or the operation's documented outcomes.
-
-Document exported object fields whose semantics extend beyond their names and types:
-
-```ts
-/** Options that bound and identify an outbound request. */
-export type RequestOptions = {
-  /** Total request budget, including connection setup and retries. */
-  readonly timeout: Duration;
-
-  /** Correlation identifier forwarded unchanged to downstream services. */
-  readonly correlationId: CorrelationId;
-};
-```
-
-## Symbol Names
-
-Do not use the substring `shape` in symbol names. Matching is case-insensitive and intentionally
-strict: any occurrence inside an identifier is prohibited, including names such as `Shape`,
-`UserShape`, `shape`, and `shapeFactory`. The Oxlint rule applies to JavaScript and TypeScript
-identifiers, private names, JSX names, declarations, references, and static member/property names.
-It does not inspect string-literal property keys or comments because those are not symbol names.
-The rule reports violations only; renaming cannot be autofixed safely because a JavaScript lint
-plugin cannot guarantee that every declaration, reference, member access, export, and external API
-contract is renamed consistently.
+Use [agent workflow](agent-workflow.md#verification-commands) for command selection. For a focused
+documentation change, check formatting, local links, and the scoped diff without running live
+examples or real-Herdr workflows. Broader verification is evidence only for the stages it actually
+runs; report exact commands, outcomes, and checks not run.

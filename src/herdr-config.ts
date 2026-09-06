@@ -13,8 +13,6 @@ import {
   type HerdrAbsolutePath as HerdrAbsolutePathValue,
   HerdrSessionName,
   type HerdrSessionName as HerdrSessionNameValue,
-  parseHerdrAbsolutePath,
-  parseHerdrSessionName,
 } from "./herdr-domain.ts";
 import { HerdrConfigurationError } from "./herdr-errors.ts";
 
@@ -105,9 +103,11 @@ export const HerdrConfigOptions = Schema.Struct({
  */
 export interface HerdrConfigOptions extends Schema.Codec.Encoded<typeof HerdrConfigOptions> {}
 
-const parseHerdrConfigOptions = Schema.decodeUnknownEffect(HerdrConfigOptions);
-const parseHerdrDurationFromString = Schema.decodeUnknownEffect(Schema.DurationFromString);
-const parseHerdrRequestDeadline = Schema.decodeUnknownEffect(HerdrRequestDeadline);
+const parseHerdrConfigOptions = Schema.decodeEffect(HerdrConfigOptions);
+const parseHerdrDurationFromString = Schema.decodeEffect(Schema.DurationFromString);
+const parseHerdrRequestDeadline = Schema.decodeEffect(HerdrRequestDeadline);
+const parseHerdrAbsolutePath = Schema.decodeEffect(HerdrAbsolutePath);
+const parseHerdrSessionName = Schema.decodeEffect(HerdrSessionName);
 
 /**
  * Immutable configuration consumed by Herdr SDK services.
@@ -294,9 +294,11 @@ function resolveHerdrRequestTimeout(
     return Effect.succeed(HerdrRequestDeadline.make(DEFAULT_REQUEST_TIMEOUT));
   }
 
-  return parseHerdrDurationFromString(ambient.requestTimeout.value).pipe(
-    Effect.flatMap(parseHerdrRequestDeadline),
-  );
+  const requestTimeout = ambient.requestTimeout.value;
+  return Effect.gen(function* () {
+    const duration = yield* parseHerdrDurationFromString(requestTimeout);
+    return yield* parseHerdrRequestDeadline(duration);
+  });
 }
 
 function resolveHerdrConfigDirectory(
