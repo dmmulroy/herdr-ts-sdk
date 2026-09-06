@@ -21,7 +21,9 @@ const fixtureProgram = Effect.gen(function* () {
     }
     yield* fs.writeFileString(recording, "fixture recording");
     yield* fs.writeFileString(state, JSON.stringify({ session, recording, args }));
-    yield* fs.writeFileString(`${recording}.environment.json`, JSON.stringify(process.env));
+    // Tests use existence as readiness: publish only after the complete JSON is written.
+    yield* fs.writeFileString(`${recording}.environment.json.tmp`, JSON.stringify(process.env));
+    yield* fs.rename(`${recording}.environment.json.tmp`, `${recording}.environment.json`);
     yield* fs.writeFileString(`${recording}.launch.json`, JSON.stringify(args));
     if (args.includes("start-wait")) yield* Effect.never;
     if (args.includes("fail-start")) process.exitCode = 1;
@@ -84,7 +86,9 @@ const fixtureProgram = Effect.gen(function* () {
       return;
     }
     if (output.includes("render-wait")) {
-      yield* fs.writeFileString(`${output}.pid`, String(process.pid));
+      // An empty PID file parses as zero (the caller's process group), not this child.
+      yield* fs.writeFileString(`${output}.pid.tmp`, String(process.pid));
+      yield* fs.rename(`${output}.pid.tmp`, `${output}.pid`);
       yield* Effect.never;
     }
     yield* fs.writeFileString(output, "fixture video");

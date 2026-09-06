@@ -384,6 +384,7 @@ test("render interruption reaps its executable and leaves an explicitly partial 
         while (!(yield* f.fs.exists(`${outputPath}.pid`))) yield* Effect.sleep(20);
       }).pipe(Effect.timeout(3000));
       const pid = Number(yield* f.fs.readFileString(`${outputPath}.pid`));
+      expect(Number.isSafeInteger(pid) && pid > 0).toBe(true);
       yield* Fiber.interrupt(fiber);
       expect(() => process.kill(pid, 0)).toThrow();
       expect(Number((yield* f.fs.stat(outputPath)).size)).toBe(0);
