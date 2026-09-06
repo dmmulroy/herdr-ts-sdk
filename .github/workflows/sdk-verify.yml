@@ -16,6 +16,9 @@ permissions:
 jobs:
   verify:
     name: Full verification (${{ matrix.os }})
+    # Hosted macOS has taken 105s for runtime alone; leave headroom above the local 120s default.
+    env:
+      HERDR_VERIFY_TIMEOUT_MS: "300000"
     strategy:
       fail-fast: false
       matrix:
