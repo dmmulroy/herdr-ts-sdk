@@ -48,7 +48,7 @@ test(
           const server = yield* startHerdrTestServer((request) =>
             Effect.succeed({
               id: request.id,
-              result: { type: "pong", version: "0.8.2", protocol: 20 },
+              result: { type: "pong", version: "0.8.2", protocol: 22 },
             }),
           );
           const result = yield* runSdkLiveEvidence({
@@ -62,7 +62,7 @@ test(
           });
           expect(result.checks).toEqual([]);
           expect(result.limitations).toContain(
-            "Compatibility blocked before workflow actions: server protocol 20; SDK requires 21. Install compatible Herdr and SDK versions; do not bypass the handshake.",
+            "Compatibility blocked before workflow actions: server protocol 22; SDK supports 17, 18, 19, 20, 21. Install compatible Herdr and SDK versions; do not bypass the handshake.",
           );
           expect(server.requests.map((request) => request.method)).toEqual(["ping"]);
         }),
