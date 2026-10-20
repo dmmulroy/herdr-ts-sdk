@@ -1,10 +1,10 @@
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
+import { Generated, OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
 import * as OpenAiSchema from "@effect/ai-openai/OpenAiSchema"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema, Stream } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
-import * as Sse from "effect/unstable/encoding/Sse"
-import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { LanguageModel } from "effect/ai"
+import * as Sse from "effect/encoding/Sse"
+import { HttpClientRequest, HttpClientResponse } from "effect/http"
 
 const makeResponse = (overrides: Record<string, unknown> = {}) => ({
   id: "resp_123",
@@ -17,6 +17,44 @@ const makeResponse = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe("OpenAiSchema", () => {
+  describe("web search sources", () => {
+    it("preserves API sources in response history", () => {
+      const item = {
+        type: "web_search_call",
+        id: "ws_123",
+        status: "completed",
+        action: { type: "search", sources: [{ type: "api", name: "oai-weather" }] }
+      } as const
+
+      assert.deepStrictEqual(Schema.decodeUnknownSync(Generated.InputItem)(item), item)
+    })
+
+    it.each([
+      { type: "url" },
+      { type: "api" },
+      { type: "api", name: null },
+      { type: "unknown", name: "oai-weather" }
+    ])("rejects malformed search sources: %j", (source) => {
+      const item = {
+        type: "web_search_call",
+        id: "ws_123",
+        status: "completed",
+        action: { type: "search", sources: [source] }
+      }
+
+      assert.throws(() => Schema.decodeUnknownSync(Generated.WebSearchToolCall)(item))
+      assert.throws(() => Schema.decodeUnknownSync(Generated.InputItem)(item))
+    })
+  })
+
+  it("accepts max reasoning effort", () => {
+    const decoded = Schema.decodeUnknownSync(OpenAiSchema.CreateResponse)({
+      reasoning: { effort: "max" }
+    })
+
+    assert.strictEqual(decoded.reasoning?.effort, "max")
+  })
+
   it("decodes a representative response payload", () => {
     const decoded = Schema.decodeUnknownSync(OpenAiSchema.Response)({
       ...makeResponse(),
@@ -275,6 +313,110 @@ describe("OpenAiSchema", () => {
       assert.isDefined(malformed)
     }))
 
+  it("decodes the error event whether the payload is flat or nested under `error`", () => {
+    const flat = Schema.decodeUnknownSync(OpenAiSchema.ResponseStreamEvent)({
+      type: "error",
+      code: "ERR",
+      message: "boom",
+      param: null,
+      sequence_number: 1
+    })
+    assert.deepStrictEqual(flat, {
+      type: "error",
+      code: "ERR",
+      message: "boom",
+      param: null,
+      sequence_number: 1
+    })
+
+    const nested = Schema.decodeUnknownSync(OpenAiSchema.ResponseStreamEvent)({
+      type: "error",
+      error: {
+        type: "insufficient_quota",
+        code: "credit_balance_exhausted",
+        message: "You have no credits remaining.",
+        param: null
+      },
+      sequence_number: 2
+    })
+    assert.deepStrictEqual(nested, {
+      type: "error",
+      code: "credit_balance_exhausted",
+      message: "You have no credits remaining.",
+      param: null,
+      sequence_number: 2
+    })
+
+    const nestedWithStatus = Schema.decodeUnknownSync(OpenAiSchema.ResponseStreamEvent)({
+      type: "error",
+      error: {
+        code: "rate_limited",
+        message: "Too many requests.",
+        param: null
+      },
+      sequence_number: 3,
+      status: 429
+    })
+    assert.deepStrictEqual(nestedWithStatus, {
+      type: "error",
+      code: "rate_limited",
+      message: "Too many requests.",
+      param: null,
+      sequence_number: 3,
+      status: 429
+    })
+  })
+
+  it.effect("rejects error events missing spec-required fields", () =>
+    Effect.gen(function*() {
+      const malformed = [
+        { type: "error" },
+        { type: "error", error: {}, sequence_number: 3 },
+        { type: "error", error: { code: "x" }, sequence_number: 3 }
+      ]
+      for (const event of malformed) {
+        const failure = yield* Schema.decodeUnknownEffect(OpenAiSchema.ResponseStreamEvent)(event).pipe(Effect.flip)
+        assert.isDefined(failure)
+      }
+    }))
+
+  it.effect("surfaces nested error events in SSE decoding instead of aborting the stream", () =>
+    Effect.gen(function*() {
+      const sseBody = [
+        {
+          type: "response.created",
+          sequence_number: 1,
+          response: makeResponse({ status: "in_progress" })
+        },
+        {
+          type: "error",
+          error: {
+            type: "insufficient_quota",
+            code: "credit_balance_exhausted",
+            message: "You have no credits remaining.",
+            param: null
+          },
+          sequence_number: 2
+        }
+      ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
+
+      const events = yield* Stream.fromIterable([sseBody]).pipe(
+        Stream.pipeThroughChannel(Sse.decodeDataSchema(OpenAiSchema.ResponseStreamEvent)),
+        Stream.map((event) => event.data),
+        Stream.runCollect
+      )
+
+      const decoded = globalThis.Array.from(events)
+      assert.strictEqual(decoded.length, 2)
+      assert.deepStrictEqual(decoded[1], {
+        type: "error",
+        code: "credit_balance_exhausted",
+        message: "You have no credits remaining.",
+        param: null,
+        sequence_number: 2
+      })
+    }))
+
   it("decodes embedding response variants (numeric + string/base64)", () => {
     const numeric = Schema.decodeUnknownSync(OpenAiSchema.CreateEmbeddingResponse)({
       object: "list",
@@ -315,6 +457,7 @@ describe("OpenAiSchema", () => {
       OpenAiClient.OpenAiClient,
       OpenAiClient.OpenAiClient.of({
         client: undefined as any,
+        createDecisions: () => Effect.die("unexpected"),
         createResponse: () => Effect.die("unexpected"),
         createResponseStream: () =>
           Effect.succeed([

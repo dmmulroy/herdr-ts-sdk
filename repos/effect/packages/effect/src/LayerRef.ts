@@ -5,6 +5,7 @@
  * back as a layer or scoped effect, and supports invalidation so later users can
  * acquire a fresh context.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 import * as Context from "./Context.ts"
@@ -37,6 +38,7 @@ const TypeId = "~effect/LayerRef"
  * @see {@link make} for constructing a `LayerRef` from a layer
  * @see {@link Service} for defining a `LayerRef` as a service class
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
@@ -127,6 +129,7 @@ export interface LayerRef<in out I, in out E = never> {
  *
  * @see {@link Service} for defining a reusable service class around a `LayerRef`
  *
+ * @stability unstable
  * @category constructors
  * @since 4.0.0
  */
@@ -208,6 +211,7 @@ export const make = Effect.fnUntraced(
  *
  * @see {@link Service} for creating concrete `LayerRef` service classes
  *
+ * @stability unstable
  * @category services
  * @since 4.0.0
  */
@@ -301,6 +305,7 @@ export interface TagClass<
  *
  * @see {@link make} for creating a `LayerRef` value without defining a service class
  *
+ * @stability unstable
  * @category services
  * @since 4.0.0
  */
@@ -349,11 +354,13 @@ export const Service = <Self>() =>
   [Preload] extends [true] ? E : never,
   Deps[number]
 > => {
-  const Err = globalThis.Error as any
   const limit = getStackTraceLimit()
-  setStackTraceLimit(2)
-  const creationError = new Err()
-  setStackTraceLimit(limit)
+  let creationError: Error | undefined
+  if (limit !== 0) {
+    setStackTraceLimit(2)
+    creationError = new globalThis.Error()
+    setStackTraceLimit(limit)
+  }
 
   function TagClass() {}
   const TagClass_ = TagClass as any as Mutable<TagClass<Self, Id, any, any, any, any, any>>
@@ -361,7 +368,7 @@ export const Service = <Self>() =>
   TagClass.key = id
   Object.defineProperty(TagClass, "stack", {
     get() {
-      return creationError.stack
+      return creationError?.stack
     }
   })
 

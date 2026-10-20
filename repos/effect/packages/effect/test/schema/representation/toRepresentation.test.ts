@@ -145,11 +145,26 @@ describe("SchemaRepresentation.toRepresentation", () => {
             { _tag: "String", checks: [] },
             { _tag: "BigInt", checks: [] }
           ],
-          mode: "anyOf",
           checks: []
         },
         references: {}
       })
+    })
+
+    it("preserves supplied Union options and omits absent options", () => {
+      const unionOptions: SchemaAST.UnionOptions = { mode: "oneOf" }
+      const union = SchemaRepresentation.toRepresentation(
+        new SchemaAST.Union([Schema.String.ast, Schema.Number.ast], unionOptions)
+      ).representation
+
+      assert.strictEqual(union._tag, "Union")
+      if (union._tag === "Union") assert.strictEqual(union.options, unionOptions)
+
+      const withoutOptions = SchemaRepresentation.toRepresentation(
+        Schema.Union([Schema.String, Schema.Number]).ast
+      ).representation
+      assert.strictEqual(withoutOptions._tag, "Union")
+      assert.isFalse(Object.hasOwn(withoutOptions, "options"))
     })
   })
 
@@ -237,15 +252,11 @@ describe("SchemaRepresentation.toRepresentation", () => {
   })
 
   describe("schema annotations and declarations", () => {
-    it("preserves brands", () => {
+    it("omits brands", () => {
       assert.deepStrictEqual(
         SchemaRepresentation.toRepresentation(Schema.String.pipe(Schema.brand("A"), Schema.brand("B")).ast),
         {
-          representation: {
-            _tag: "String",
-            annotations: { brands: ["A", "B"] },
-            checks: []
-          },
+          representation: { _tag: "String", checks: [] },
           references: {}
         }
       )
@@ -399,8 +410,8 @@ describe("SchemaRepresentation.toRepresentation", () => {
                 payload: { source: "^[A-Z]", flags: "" }
               },
               annotations: {
-                arbitrary: { constraint: { patterns: ["^[A-Z]"] } },
-                expected: "a string matching the RegExp ^[A-Z]"
+                expected: "a string matching the RegExp ^[A-Z]",
+                arbitraryConstraint: { patterns: [{ source: "^[A-Z]", flags: "" }] }
               },
               aborted: false
             }]
@@ -419,7 +430,9 @@ describe("SchemaRepresentation.toRepresentation", () => {
           schemas: [shared.ast, shared.ast]
         }
       })
-      const document = SchemaRepresentation.toRepresentation(Schema.String.check(filter).ast)
+      const document = SchemaRepresentation.toRepresentation(Schema.String.check(filter).ast, {
+        referencePolicy: ({ ast, occurrences }) => occurrences > 1 ? `${ast._tag}_` : undefined
+      })
       const representation = document.representation
 
       assert.strictEqual(representation._tag, "String")
@@ -521,104 +534,53 @@ describe("SchemaRepresentation.toRepresentation", () => {
     })
   })
 
-  describe("shared references", () => {
-    it("extracts shared Objects, Arrays, and Union schemas into references", () => {
-      const object = Schema.Struct({ value: Schema.String })
-      const array = Schema.Array(Schema.Number)
-      const union = Schema.Union([Schema.Struct({ value: Schema.String }), Schema.Null])
+  describe("reference policies", () => {
+    it("extracts only candidates with identifiers by default", () => {
+      const anonymous = Schema.Struct({ value: Schema.String })
+      const identified = Schema.Struct({ value: Schema.String }).annotate({ identifier: "Identified" })
       const document = SchemaRepresentation.toRepresentation(
-        Schema.Tuple([object, object, array, array, union, union]).ast
+        Schema.Tuple([anonymous, identified]).ast
       )
 
-      assert.deepStrictEqual(document, {
-        representation: {
-          _tag: "Arrays",
-          elements: [
-            { type: { _tag: "Reference", $ref: "Objects_" }, isOptional: false },
-            { type: { _tag: "Reference", $ref: "Objects_" }, isOptional: false },
-            { type: { _tag: "Reference", $ref: "Arrays_" }, isOptional: false },
-            { type: { _tag: "Reference", $ref: "Arrays_" }, isOptional: false },
-            { type: { _tag: "Reference", $ref: "Union_" }, isOptional: false },
-            { type: { _tag: "Reference", $ref: "Union_" }, isOptional: false }
-          ],
-          rest: [],
-          checks: []
-        },
-        references: {
-          Objects_: {
-            _tag: "Objects",
-            propertySignatures: [{
-              name: "value",
-              type: { _tag: "String", checks: [] },
-              isOptional: false,
-              isMutable: false
-            }],
-            indexSignatures: [],
-            checks: []
-          },
-          Arrays_: {
-            _tag: "Arrays",
-            elements: [],
-            rest: [{ _tag: "Number", checks: [] }],
-            checks: []
-          },
-          Union_: {
-            _tag: "Union",
-            types: [
-              {
-                _tag: "Objects",
-                propertySignatures: [{
-                  name: "value",
-                  type: { _tag: "String", checks: [] },
-                  isOptional: false,
-                  isMutable: false
-                }],
-                indexSignatures: [],
-                checks: []
-              },
-              { _tag: "Null", checks: [] }
-            ],
-            mode: "anyOf",
-            checks: []
-          }
-        }
-      })
-    })
-
-    it("does not extract shared unions of leaf schemas", () => {
-      const union = Schema.Union([Schema.String, Schema.Number])
-      const document = SchemaRepresentation.toRepresentation(Schema.Tuple([union, union]).ast)
-
-      assert.deepStrictEqual(document.references, {})
+      assert.deepStrictEqual(Object.keys(document.references), ["Identified"])
       assert.strictEqual(document.representation._tag, "Arrays")
       if (document.representation._tag === "Arrays") {
-        assert.deepStrictEqual(document.representation.elements.map((element) => element.type._tag), ["Union", "Union"])
+        assert.deepStrictEqual(document.representation.elements.map((element) => element.type._tag), [
+          "Objects",
+          "Reference"
+        ])
       }
     })
 
-    it("does not extract structurally equivalent schemas with distinct ASTs", () => {
-      const first = Schema.Struct({ value: Schema.String })
-      const second = Schema.Struct({ value: Schema.String })
-      const document = SchemaRepresentation.toRepresentation(Schema.Tuple([first, second]).ast)
+    it("allows a policy to inline an explicitly identified schema", () => {
+      const schema = Schema.String.annotate({ identifier: "Value" })
 
-      assert.deepStrictEqual(document.references, {})
-    })
-
-    it("does not extract a child solely because its shared parent is reused", () => {
-      const child = Schema.Struct({ value: Schema.String })
-      const parent = Schema.Struct({ child })
-      const document = SchemaRepresentation.toRepresentation(Schema.Tuple([parent, parent]).ast)
-
-      assert.deepStrictEqual(Object.keys(document.references), ["Objects_"])
-    })
-
-    it("does not extract shared trivial or Suspend schemas", () => {
-      const suspend = Schema.suspend(() => Schema.String)
-      const document = SchemaRepresentation.toRepresentation(
-        Schema.Tuple([Schema.String, Schema.String, suspend, suspend]).ast
+      assert.deepStrictEqual(
+        SchemaRepresentation.toRepresentation(schema.ast, { referencePolicy: () => undefined }),
+        {
+          representation: {
+            _tag: "String",
+            annotations: { identifier: "Value" },
+            checks: []
+          },
+          references: {}
+        }
       )
+    })
 
-      assert.deepStrictEqual(document.references, {})
+    it("forces a synthetic reference when a policy inlines a recursive schema", () => {
+      interface Node {
+        readonly next?: Node
+      }
+      const Node = Schema.Struct({
+        next: Schema.optionalKey(Schema.suspend((): Schema.Codec<Node> => Node))
+      }).annotate({ identifier: "Node" })
+      const document = SchemaRepresentation.toRepresentation(Node.ast, {
+        referencePolicy: () => undefined
+      })
+
+      assert.deepStrictEqual(document.representation, { _tag: "Reference", $ref: "Objects_" })
+      assert.deepStrictEqual(Object.keys(document.references), ["Objects_"])
     })
   })
 

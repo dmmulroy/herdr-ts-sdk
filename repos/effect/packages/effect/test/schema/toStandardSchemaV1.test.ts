@@ -1,6 +1,6 @@
 import { assertTrue, deepStrictEqual, strictEqual } from "@effect/vitest/utils"
-import type { StandardSchemaV1 } from "@standard-schema/spec"
-import { Context, Effect, Option, Predicate, Schema, SchemaGetter, SchemaIssue } from "effect"
+import { Context, Effect, type Option, Predicate, Schema, SchemaGetter, SchemaIssue } from "effect"
+import type { StandardSchemaV1 } from "effect/StandardSchema"
 import { describe, it } from "vitest"
 
 function validate<I, A>(
@@ -90,7 +90,7 @@ const expectAsyncFailure = async <I, A>(
 }
 
 const AsyncString = Schema.String.pipe(Schema.decode({
-  decode: new SchemaGetter.Getter((os: Option.Option<string>) =>
+  decode: SchemaGetter.transformOptionalEffect((os: Option.Option<string>) =>
     Effect.gen(function*() {
       yield* Effect.sleep("10 millis")
       return os
@@ -102,6 +102,17 @@ const AsyncString = Schema.String.pipe(Schema.decode({
 const AsyncNonEmptyString = AsyncString.check(Schema.isNonEmpty())
 
 describe("toStandardSchemaV1", () => {
+  it("validates subclass fields when the parent already has a Standard Schema adapter", () => {
+    class Parent extends Schema.Class<Parent>("Parent")({ a: Schema.String }) {}
+    const parent = Schema.toStandardSchemaV1(Parent)
+    class Child extends Parent.extend<Child>("Child")({ b: Schema.Number }) {}
+    const child = Schema.toStandardSchemaV1(Child)
+
+    expectSyncSuccess(parent, { a: "a" }, new Parent({ a: "a" }))
+    expectSyncFailure(child, { a: "a" }, [{ path: ["b"], message: "Missing key" }])
+    expectSyncSuccess(child, { a: "a", b: 1 }, new Child({ a: "a", b: 1 }))
+  })
+
   it("should return a Standard Schema V1 schema", () => {
     const schema = Schema.FiniteFromString
     const standardSchema = Schema.toStandardSchemaV1(schema)
@@ -155,10 +166,10 @@ describe("toStandardSchemaV1", () => {
 
     it("sync decoding should throw", () => {
       const DepString = Schema.Number.pipe(Schema.decode({
-        decode: SchemaGetter.onSome((n) =>
+        decode: SchemaGetter.transformEffect((n) =>
           Effect.gen(function*() {
             const magicNumber = yield* MagicNumber
-            return Option.some(n * magicNumber)
+            return n * magicNumber
           })
         ),
         encode: SchemaGetter.passthrough()
@@ -175,11 +186,11 @@ describe("toStandardSchemaV1", () => {
 
     it("async decoding should report a missing dependency", () => {
       const DepString = Schema.Number.pipe(Schema.decode({
-        decode: SchemaGetter.onSome((n) =>
+        decode: SchemaGetter.transformEffect((n) =>
           Effect.gen(function*() {
             const magicNumber = yield* MagicNumber
             yield* Effect.sleep("10 millis")
-            return Option.some(n * magicNumber)
+            return n * magicNumber
           })
         ),
         encode: SchemaGetter.passthrough()

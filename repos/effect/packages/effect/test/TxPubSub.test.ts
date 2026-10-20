@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Fiber, Option, TxPubSub, TxQueue } from "effect"
+import { Effect, Exit, Fiber, Option, Scope, TxPubSub, TxQueue } from "effect"
 
 describe("TxPubSub", () => {
   describe("constructors", () => {
@@ -257,21 +257,23 @@ describe("TxPubSub", () => {
         )
       }))
 
-    it.effect("isEmpty checks all subscriber queues are empty", () =>
+    it.effect("isEmpty and isNonEmpty reflect subscriber queues", () =>
       Effect.gen(function*() {
         const hub = yield* Effect.tx(TxPubSub.unbounded<number>())
         assert.strictEqual(yield* Effect.tx(TxPubSub.isEmpty(hub)), true)
+        assert.strictEqual(yield* Effect.tx(TxPubSub.isNonEmpty(hub)), false)
 
         yield* Effect.scoped(
           Effect.gen(function*() {
             const sub = yield* TxPubSub.subscribe(hub)
-            assert.strictEqual(yield* Effect.tx(TxPubSub.isEmpty(hub)), true)
 
             yield* Effect.tx(TxPubSub.publish(hub, 1))
             assert.strictEqual(yield* Effect.tx(TxPubSub.isEmpty(hub)), false)
+            assert.strictEqual(yield* Effect.tx(TxPubSub.isNonEmpty(hub)), true)
 
             yield* Effect.tx(TxQueue.take(sub))
             assert.strictEqual(yield* Effect.tx(TxPubSub.isEmpty(hub)), true)
+            assert.strictEqual(yield* Effect.tx(TxPubSub.isNonEmpty(hub)), false)
           })
         )
       }))
@@ -331,6 +333,17 @@ describe("TxPubSub", () => {
   })
 
   describe("scope cleanup", () => {
+    it.effect("releases a subscriber after hub shutdown without interruption", () =>
+      Effect.gen(function*() {
+        const hub = yield* Effect.tx(TxPubSub.unbounded<number>())
+        const scope = yield* Scope.make()
+        yield* TxPubSub.subscribe(hub).pipe(Scope.provide(scope))
+        yield* Effect.tx(TxPubSub.shutdown(hub))
+
+        const release = yield* Effect.exit(Scope.close(scope, Exit.void))
+        assert(Exit.isSuccess(release))
+      }))
+
     it.effect("closing scope removes subscriber", () =>
       Effect.gen(function*() {
         const hub = yield* Effect.tx(TxPubSub.unbounded<number>())

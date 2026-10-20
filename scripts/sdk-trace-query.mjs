@@ -4,7 +4,7 @@ import { parseArgs } from "node:util";
 import { approvedSdkTelemetryAttribute } from "./sdk-telemetry-execution.mjs";
 import { sdkTelemetrySourceTokens } from "./sdk-telemetry.mjs";
 import { Console, Effect, Schema, Stream } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 /** Query failures exclude server bodies and unsafe input values. */
 export const SdkTraceQueryError = Schema.TaggedStruct("SdkTraceQueryError", {

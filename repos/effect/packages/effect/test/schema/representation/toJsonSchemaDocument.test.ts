@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { type JsonSchema, Schema, SchemaAST, SchemaRepresentation } from "effect"
+import { JsonSchema, Schema, SchemaAST, SchemaRepresentation } from "effect"
 import { throws } from "../../utils/assert.ts"
 
 function expectError(thunk: () => void, expected: string | Error): void {
@@ -26,7 +26,7 @@ const NumberRepresentation: SchemaRepresentation.Representation = {
 const EmptyUnionRepresentation: SchemaRepresentation.Representation = {
   _tag: "Union",
   types: [],
-  mode: "anyOf",
+  options: { mode: "anyOf" },
   checks: []
 }
 
@@ -34,8 +34,41 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
   // Representation documents are public, persistable inputs. These tests construct them
   // directly so the compiler is covered independently from Schema-to-Representation lowering.
   function compile(representation: SchemaRepresentation.Representation) {
-    return SchemaRepresentation.toJsonSchemaDocument({ representation, references: {} }).schema
+    return SchemaRepresentation.toJsonSchemaDocument(
+      { representation, references: {} },
+      { onExcessProperty: "error" }
+    ).schema
   }
+
+  describe("local reference round trips", () => {
+    for (
+      const [key, token] of [
+        ["Rate", "Rate"],
+        ["id~a/b", "id~0a~1b"],
+        ["Rate%", "Rate%25"],
+        ["id~a/b%25", "id~0a~1b%2525"]
+      ]
+    ) {
+      it(`preserves the definition named ${key}`, () => {
+        const input = JsonSchema.fromSchemaDraft2020_12({
+          $ref: `#/$defs/${token}`,
+          $defs: { [key]: { type: "string" } }
+        })
+        const imported = SchemaRepresentation.fromJsonSchemaDocument(input)
+        assert.strictEqual(Schema.is(imported)("value"), true)
+        assert.strictEqual(Schema.is(imported)(1), false)
+
+        const output = SchemaRepresentation.toJsonSchemaDocument(
+          SchemaRepresentation.toRepresentation(imported.ast)
+        )
+        assert.deepStrictEqual(Object.keys(output.definitions), [key])
+        const restored = SchemaRepresentation.fromJsonSchemaDocument(output)
+        assert.strictEqual(Schema.is(restored)("value"), true)
+        assert.strictEqual(Schema.is(restored)(1), false)
+        assert.strictEqual(output.schema.$ref, input.schema.$ref)
+      })
+    }
+  })
 
   describe("representation nodes", () => {
     const keywords = [
@@ -52,11 +85,11 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
       }],
       ["Symbol", { _tag: "Symbol", checks: [] }, {
         type: "string",
-        allOf: [{ pattern: "^Symbol\\((.*)\\)$" }]
+        allOf: [{ pattern: "^Symbol\\(([\\s\\S]*)\\)$" }]
       }],
       ["UniqueSymbol", { _tag: "UniqueSymbol", symbol: Symbol.for("value"), checks: [] }, {
         type: "string",
-        allOf: [{ pattern: "^Symbol\\((.*)\\)$" }]
+        enum: ["Symbol(value)"]
       }],
       ["Null", { _tag: "Null", checks: [] }, { type: "null" }],
       ["Never", { _tag: "Never", checks: [] }, { not: {} }]
@@ -69,6 +102,13 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
         assert.deepStrictEqual(compile(representation), expected)
       })
     }
+
+    it("local UniqueSymbol", () => {
+      assert.deepStrictEqual(
+        compile({ _tag: "UniqueSymbol", symbol: Symbol("value"), checks: [] }),
+        { not: {} }
+      )
+    })
 
     it("compiles Suspend", () => {
       assert.deepStrictEqual(
@@ -132,26 +172,18 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
       )
     })
 
-    it("preserves ambiguous Enum values", () => {
-      assert.deepStrictEqual(
-        compile({
-          _tag: "Enum",
-          enums: [
-            ["StringNaN", "NaN"],
-            ["NumberNaN", Number.NaN],
-            ["StringInfinity", "Infinity"],
-            ["NumberInfinity", Number.POSITIVE_INFINITY]
-          ],
-          checks: []
-        }),
-        {
-          anyOf: [
-            { type: "string", enum: ["NaN"], title: "StringNaN" },
-            { type: "string", enum: ["NaN"], title: "NumberNaN" },
-            { type: "string", enum: ["Infinity"], title: "StringInfinity" },
-            { type: "string", enum: ["Infinity"], title: "NumberInfinity" }
-          ]
-        }
+    it("rejects non-finite numeric Enum values", () => {
+      expectError(
+        () =>
+          compile({
+            _tag: "Enum",
+            enums: [
+              ["StringNaN", "NaN"],
+              ["NumberNaN", Number.NaN]
+            ],
+            checks: []
+          }),
+        `Invalid numeric enum value NaN\n  at ["representation"]["enums"][1][1]`
       )
     })
 
@@ -171,6 +203,18 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
   })
 
   describe("arrays and objects", () => {
+    it("compiles an empty Objects node as any non-null JSON value", () => {
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Objects",
+          propertySignatures: [],
+          indexSignatures: [],
+          checks: []
+        }),
+        { not: { type: "null" } }
+      )
+    })
+
     it("compiles optional tuple elements", () => {
       assert.deepStrictEqual(
         compile({
@@ -187,9 +231,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
           prefixItems: [{ type: "string" }, {
             anyOf: [
               { type: "number" },
-              { type: "string", enum: ["NaN"] },
-              { type: "string", enum: ["Infinity"] },
-              { type: "string", enum: ["-Infinity"] }
+              { type: "string", enum: ["NaN", "Infinity", "-Infinity"] }
             ]
           }],
           maxItems: 2,
@@ -263,7 +305,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
             { _tag: "Literal", literal: "a", checks: [] },
             { _tag: "Literal", literal: "b", checks: [] }
           ],
-          mode: "anyOf",
+          options: { mode: "anyOf" },
           checks: []
         }),
         { type: "string", enum: ["a", "b"] }
@@ -278,7 +320,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
             { _tag: "Literal", literal: "a", checks: [] },
             { _tag: "Literal", literal: 1, checks: [] }
           ],
-          mode: "anyOf",
+          options: { mode: "anyOf" },
           checks: []
         }),
         {
@@ -455,10 +497,109 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
         compile({
           _tag: "Union",
           types: [StringRepresentation],
-          mode: "anyOf",
+          options: { mode: "anyOf" },
           checks: []
         }),
         { anyOf: [{ type: "string" }] }
+      )
+    })
+
+    it("falls back from oneOf to anyOf when a branch is approximate", () => {
+      const approximate: SchemaRepresentation.Representation = {
+        _tag: "String",
+        checks: [{
+          _tag: "Filter",
+          aborted: false,
+          annotations: { toJsonSchema: () => [{ minLength: 1 }, true] }
+        }]
+      }
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Union",
+          types: [approximate, { _tag: "Boolean", checks: [] }],
+          options: { mode: "oneOf" },
+          annotations: { description: "annotated union" },
+          checks: []
+        }),
+        {
+          anyOf: [{ type: "string", minLength: 1 }, { type: "boolean" }],
+          description: "annotated union"
+        }
+      )
+    })
+
+    it("propagates approximation through nested representations", () => {
+      const approximate: SchemaRepresentation.Representation = {
+        _tag: "String",
+        checks: [{ _tag: "Filter", aborted: false }]
+      }
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Union",
+          types: [{ _tag: "Arrays", elements: [], rest: [approximate], checks: [] }, NumberRepresentation],
+          options: { mode: "oneOf" },
+          checks: []
+        }),
+        {
+          anyOf: [
+            { type: "array", items: { type: "string" } },
+            {
+              anyOf: [
+                { type: "number" },
+                { type: "string", enum: ["NaN", "Infinity", "-Infinity"] }
+              ]
+            }
+          ]
+        }
+      )
+    })
+
+    it("resolves an approximate oneOf copied by contextual annotations", () => {
+      const approximate: SchemaRepresentation.Representation = {
+        _tag: "String",
+        checks: [{
+          _tag: "Filter",
+          aborted: false,
+          annotations: { toJsonSchema: () => [{ minLength: 1 }, true] }
+        }]
+      }
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Arrays",
+          elements: [{
+            type: {
+              _tag: "Union",
+              types: [approximate, { _tag: "Boolean", checks: [] }],
+              options: { mode: "oneOf" },
+              checks: []
+            },
+            isOptional: false,
+            annotations: { description: "element" }
+          }],
+          rest: [],
+          checks: []
+        }),
+        {
+          type: "array",
+          prefixItems: [{
+            anyOf: [{ type: "string", minLength: 1 }, { type: "boolean" }],
+            allOf: [{ description: "element" }]
+          }],
+          minItems: 1,
+          maxItems: 1
+        }
+      )
+    })
+
+    it("keeps oneOf when every branch is exact", () => {
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Union",
+          types: [StringRepresentation, { _tag: "Boolean", checks: [] }],
+          options: { mode: "oneOf" },
+          checks: []
+        }),
+        { oneOf: [{ type: "string" }, { type: "boolean" }] }
       )
     })
 
@@ -516,21 +657,19 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
 
       assert.deepStrictEqual(SchemaRepresentation.toJsonSchemaDocument(document).schema, {
         type: "integer",
-        allOf: [{ minimum: 0 }]
+        minimum: 0,
+        maximum: globalThis.Number.MAX_SAFE_INTEGER
       })
       assert.strictEqual(receivedType, "integer")
     })
 
-    it("compiles the isPattern vertical slice", () => {
+    it("omits isPattern flags that JSON Schema cannot represent", () => {
       const pattern = SchemaRepresentation.toJsonSchemaDocument(
         SchemaRepresentation.toRepresentation(Schema.String.check(Schema.isPattern(/^[a-z]+$/i)).ast)
       )
       assert.deepStrictEqual(pattern, {
         dialect: "draft-2020-12",
-        schema: {
-          type: "string",
-          allOf: [{ pattern: "^[a-z]+$" }]
-        },
+        schema: { type: "string" },
         definitions: {}
       })
     })
@@ -592,9 +731,43 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
       }
 
       assert.deepStrictEqual(SchemaRepresentation.toJsonSchemaDocument(document).schema, {
-        anyOf: [{ type: "object" }, { type: "array" }],
-        allOf: [{ propertyNames: { type: "string" } }]
+        not: { type: "null" },
+        propertyNames: { type: "string" }
       })
+    })
+
+    it("propagates approximation from representation.schemas", () => {
+      const approximate: SchemaRepresentation.Representation = {
+        _tag: "String",
+        checks: [{
+          _tag: "Filter",
+          aborted: false,
+          annotations: { toJsonSchema: () => [{ minLength: 1 }, true] }
+        }]
+      }
+      const dependent: SchemaRepresentation.Representation = {
+        _tag: "String",
+        checks: [{
+          _tag: "Filter",
+          aborted: false,
+          representation: {
+            id: "acme/schema/dependent",
+            payload: null,
+            schemas: [approximate]
+          },
+          annotations: { toJsonSchema: () => ({}) }
+        }]
+      }
+
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Union",
+          types: [dependent, { _tag: "Boolean", checks: [] }],
+          options: { mode: "oneOf" },
+          checks: []
+        }),
+        { anyOf: [{ type: "string" }, { type: "boolean" }] }
+      )
     })
   })
 
@@ -621,7 +794,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
         Schema.TemplateLiteral(["a", Schema.String]).ast
       ).representation
       const pattern = SchemaRepresentation.toRepresentation(
-        Schema.String.check(Schema.isPattern(/^b/)).ast
+        Schema.String.check(Schema.isPattern(/^b/u)).ast
       ).representation
       const document: SchemaRepresentation.Document = {
         representation: {
@@ -631,7 +804,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
             parameter: {
               _tag: "Union",
               types: [template, pattern],
-              mode: "anyOf",
+              options: { mode: "anyOf" },
               checks: []
             },
             type: StringRepresentation
@@ -645,7 +818,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
       assert.deepStrictEqual(Object.keys(schema.patternProperties ?? {}), ["^a[\\s\\S]*?$", "^b"])
     })
 
-    it("ignores boolean members while collecting index-signature patterns", () => {
+    it("does not extract a partial pattern from boolean applicator members", () => {
       const document: SchemaRepresentation.Document = {
         representation: {
           _tag: "Objects",
@@ -670,8 +843,100 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
 
       assert.deepStrictEqual(SchemaRepresentation.toJsonSchemaDocument(document).schema, {
         type: "object",
-        patternProperties: { "^a": { type: "string" } }
+        additionalProperties: true
       })
+    })
+
+    it("does not use an approximate pattern as an index selector", () => {
+      const document: SchemaRepresentation.Document = {
+        representation: {
+          _tag: "Objects",
+          propertySignatures: [],
+          indexSignatures: [{
+            parameter: {
+              _tag: "String",
+              checks: [{
+                _tag: "Filter",
+                aborted: false,
+                annotations: { toJsonSchema: () => [{ pattern: "^a" }, true] }
+              }]
+            },
+            type: NumberRepresentation
+          }],
+          checks: []
+        },
+        references: {}
+      }
+
+      assert.deepStrictEqual(compile(document.representation), {
+        type: "object",
+        propertyNames: { type: "string", pattern: "^a" },
+        additionalProperties: {
+          anyOf: [
+            { type: "number" },
+            { type: "string", enum: ["NaN", "Infinity", "-Infinity"] }
+          ]
+        }
+      })
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Union",
+          types: [document.representation, { _tag: "Boolean", checks: [] }],
+          options: { mode: "oneOf" },
+          checks: []
+        }),
+        {
+          anyOf: [{
+            type: "object",
+            propertyNames: { type: "string", pattern: "^a" },
+            additionalProperties: {
+              anyOf: [
+                { type: "number" },
+                { type: "string", enum: ["NaN", "Infinity", "-Infinity"] }
+              ]
+            }
+          }, { type: "boolean" }]
+        }
+      )
+    })
+
+    it("keeps an exact key selector when its value is approximate", () => {
+      const key: SchemaRepresentation.Representation = {
+        _tag: "String",
+        checks: [{
+          _tag: "Filter",
+          aborted: false,
+          annotations: { toJsonSchema: () => ({ pattern: "^a" }) }
+        }]
+      }
+      const value: SchemaRepresentation.Representation = {
+        _tag: "String",
+        checks: [{
+          _tag: "Filter",
+          aborted: false,
+          annotations: { toJsonSchema: () => [{ minLength: 1 }, true] }
+        }]
+      }
+      assert.deepStrictEqual(
+        compile({
+          _tag: "Union",
+          types: [{
+            _tag: "Objects",
+            propertySignatures: [],
+            indexSignatures: [{ parameter: key, type: value }],
+            checks: []
+          }, { _tag: "Boolean", checks: [] }],
+          options: { mode: "oneOf" },
+          checks: []
+        }),
+        {
+          anyOf: [{
+            type: "object",
+            patternProperties: { "^a": { type: "string", minLength: 1 } },
+            additionalProperties: false
+          }, { type: "boolean" }]
+        }
+      )
     })
 
     it("compiles all supported template-literal parts and rejects other nodes", () => {
@@ -694,7 +959,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
               { _tag: "Literal", literal: "a", checks: [] },
               { _tag: "Literal", literal: "b", checks: [] }
             ],
-            mode: "anyOf",
+            options: { mode: "anyOf" },
             checks: []
           }
         ],
@@ -705,7 +970,7 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
         SchemaRepresentation.toJsonSchemaDocument({ representation, references: {} }).schema,
         {
           type: "string",
-          pattern: `^p${SchemaAST.FINITE_PATTERN}x${SchemaAST.STRING_PATTERN}a|b$`
+          pattern: `^p${SchemaAST.FINITE_PATTERN}x${SchemaAST.STRING_PATTERN}(?:a|b)$`
         }
       )
 
@@ -725,6 +990,277 @@ describe("SchemaRepresentation.toJsonSchemaDocument", () => {
   })
 
   describe("normalization", () => {
+    describe("conservative check compaction", () => {
+      function check(
+        fragment: JsonSchema.JsonSchema,
+        annotations?: SchemaRepresentation.Filter["annotations"]
+      ): SchemaRepresentation.Filter {
+        return {
+          _tag: "Filter",
+          aborted: false,
+          annotations: { ...annotations, toJsonSchema: () => fragment }
+        }
+      }
+
+      function compileChecks(...fragments: ReadonlyArray<JsonSchema.JsonSchema>) {
+        return compile({
+          _tag: "Any",
+          checks: fragments.map((fragment) => check(fragment))
+        })
+      }
+
+      it("tightens colliding bounds in place", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "String",
+            checks: [check({ minLength: 1 }), check({ minLength: 2 }), check({ maxLength: 5 }), check({ maxLength: 9 })]
+          }),
+          {
+            type: "string",
+            minLength: 2,
+            maxLength: 5
+          }
+        )
+      })
+
+      it("keeps other colliding keywords in separate schema objects", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "String",
+            checks: [check({ pattern: "a" }), check({ pattern: "b" })]
+          }),
+          {
+            type: "string",
+            pattern: "a",
+            allOf: [{ pattern: "b" }]
+          }
+        )
+      })
+
+      it("inlines pure annotations on a check", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "String",
+            checks: [check({ minLength: 1 }, {
+              title: "title",
+              description: "description",
+              default: "default",
+              examples: ["example"],
+              readOnly: true,
+              writeOnly: false
+            })]
+          }),
+          {
+            type: "string",
+            minLength: 1,
+            title: "title",
+            description: "description",
+            default: "default",
+            examples: ["example"],
+            readOnly: true,
+            writeOnly: false
+          }
+        )
+      })
+
+      it("inlines callback metadata with pure check annotations", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "String",
+            checks: [check({ minLength: 1, title: "callback" }, { description: "annotation" })]
+          }),
+          {
+            type: "string",
+            minLength: 1,
+            title: "callback",
+            description: "annotation"
+          }
+        )
+      })
+
+      it("keeps colliding annotations in a separate schema object", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "String",
+            annotations: { description: "string" },
+            checks: [check({ minLength: 1 }, { description: "check" })]
+          }),
+          {
+            type: "string",
+            description: "string",
+            allOf: [{ minLength: 1, description: "check" }]
+          }
+        )
+      })
+
+      it("keeps format annotations in a separate schema object", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "String",
+            checks: [check({ minLength: 1 }, { format: "annotated-check" })]
+          }),
+          {
+            type: "string",
+            allOf: [{ minLength: 1, format: "annotated-check" }]
+          }
+        )
+      })
+
+      it("inlines propertyNames without a collision", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "Objects",
+            propertySignatures: [],
+            indexSignatures: [],
+            checks: [check({ propertyNames: { minLength: 1 } })]
+          }),
+          {
+            not: { type: "null" },
+            propertyNames: { minLength: 1 }
+          }
+        )
+      })
+
+      it("keeps colliding propertyNames in separate schema objects", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "Objects",
+            propertySignatures: [],
+            indexSignatures: [],
+            checks: [
+              check({ propertyNames: { minLength: 1 } }),
+              check({ propertyNames: { maxLength: 2 } })
+            ]
+          }),
+          {
+            not: { type: "null" },
+            propertyNames: { minLength: 1 },
+            allOf: [{ propertyNames: { maxLength: 2 } }]
+          }
+        )
+      })
+
+      it("keeps a reference separate from contextual annotations", () => {
+        const document = SchemaRepresentation.toJsonSchemaDocument({
+          representation: {
+            _tag: "Objects",
+            propertySignatures: [{
+              name: "value",
+              type: { _tag: "Reference", $ref: "Value" },
+              isOptional: false,
+              isMutable: false,
+              annotations: { description: "contextual" }
+            }],
+            indexSignatures: [],
+            checks: []
+          },
+          references: { Value: StringRepresentation }
+        })
+
+        assert.deepStrictEqual(document.schema, {
+          type: "object",
+          properties: {
+            value: {
+              allOf: [
+                { $ref: "#/$defs/Value" },
+                { description: "contextual" }
+              ]
+            }
+          },
+          required: ["value"],
+          additionalProperties: true
+        })
+      })
+
+      const coupledKeywords = [
+        [
+          "contains and minContains",
+          { contains: { const: "a" } },
+          { minContains: 2 }
+        ],
+        [
+          "properties and additionalProperties",
+          { properties: { a: true } },
+          { additionalProperties: false }
+        ],
+        [
+          "prefixItems and items",
+          { prefixItems: [true] },
+          { items: false }
+        ],
+        [
+          "if and else",
+          { if: { required: ["a"] } },
+          { else: { required: ["b"] } }
+        ]
+      ] satisfies ReadonlyArray<readonly [string, JsonSchema.JsonSchema, JsonSchema.JsonSchema]>
+
+      for (const [name, first, second] of coupledKeywords) {
+        it(`keeps ${name} in separate schema objects`, () => {
+          for (const [left, right] of [[first, second], [second, first]]) {
+            assert.deepStrictEqual(compileChecks(left, right), {
+              ...left,
+              allOf: [right]
+            })
+          }
+        })
+      }
+
+      it("keeps a fragment containing a custom keyword intact", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "String",
+            checks: [check({ minLength: 1, "x-check": true })]
+          }),
+          {
+            type: "string",
+            allOf: [{ minLength: 1, "x-check": true }]
+          }
+        )
+      })
+
+      it("keeps format scoped after absorbing a number type", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "Number",
+            checks: [check({ type: "number" }, { format: "finite" })]
+          }),
+          {
+            type: "number",
+            allOf: [{ format: "finite" }]
+          }
+        )
+      })
+
+      it("inlines callback metadata after absorbing a number type", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "Number",
+            checks: [check({ type: "integer", description: "integer" })]
+          }),
+          {
+            type: "integer",
+            description: "integer"
+          }
+        )
+      })
+
+      it("does not overwrite an annotation after absorbing a number type", () => {
+        assert.deepStrictEqual(
+          compile({
+            _tag: "Number",
+            annotations: { description: "number" },
+            checks: [check({ type: "integer" }, { description: "integer" })]
+          }),
+          {
+            type: "integer",
+            description: "number",
+            allOf: [{ description: "integer" }]
+          }
+        )
+      })
+    })
+
     it("extracts nested number types without losing other allOf members", () => {
       const output = SchemaRepresentation.toJsonSchemaDocument({
         representation: {

@@ -3,7 +3,7 @@
 ## Scope and baseline
 
 This audit covers the Effect-native `src/` implementation, its composition graph, tests, generated
-wire boundary, and the Effect `4.0.0-beta.105` source pinned under `repos/effect`. It evaluates
+wire boundary, and the Effect `4.0.0-beta.105` source then in `repos/effect`. It evaluates
 opportunities to replace project-owned infrastructure with Effect or Effect Platform primitives
 without changing Herdr's protocol, error, timeout, ordering, or resource-ownership semantics.
 
@@ -66,7 +66,7 @@ cancellation behavior still conflict with event backpressure and close-on-uncert
 requirements. The raw Unix connection and write adapters therefore remain private transport code.
 
 The implementation imports `NodeStream` from the exact
-`@effect/platform-node-shared@4.0.0-beta.105` package rather than the aggregate
+`@effect/platform-node-shared@4.0.5` package rather than the aggregate
 `@effect/platform-node` package. At verification time, the aggregate package resolved an unrelated
 `undici@8` dependency requiring Node 22.19 even though this SDK supports Node 20, and also installed
 unused Redis and HTTP dependencies. The narrow package supports Node 18+, occupies approximately
@@ -151,9 +151,9 @@ However, direct adoption currently has four semantic gaps:
    transport deliberately destroys a socket when a backpressured write is interrupted
    ([source](../../src/herdr-transport.ts#L489)), and the graphics timeout test depends on
    that close-on-uncertain-frame behavior.
-4. consumers that need the typed socket API and errors cross the `effect/unstable/socket` surface,
-   even though the Node package entry point itself is published. This beta API and the added
-   `@effect/platform-node` dependency should be isolated behind `HerdrTransport`.
+4. consumers that need the typed socket API and errors cross the `effect/socket` surface, still
+   marked unstable, even though the Node package entry point itself is published. This unstable API
+   and the added `@effect/platform-node` dependency should be isolated behind `HerdrTransport`.
 
 Therefore `NodeSocket` is a prototype candidate, not an automatic replacement. Its use must remain
 private to the transport adapter, map `SocketError.reason` into the existing Herdr phase taxonomy,

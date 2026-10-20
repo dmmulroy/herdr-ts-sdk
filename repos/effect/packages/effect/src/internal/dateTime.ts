@@ -17,10 +17,10 @@ import type { Mutable } from "../Types.ts"
 import * as effect from "./effect.ts"
 
 /** @internal */
-export const TypeId = "~effect/time/DateTime"
+export const TypeId = "~effect/DateTime"
 
 /** @internal */
-export const TimeZoneTypeId = "~effect/time/DateTime/TimeZone"
+export const TimeZoneTypeId = "~effect/DateTime/TimeZone"
 
 const Proto = {
   [TypeId]: TypeId,
@@ -374,8 +374,9 @@ const formatOptions: Intl.DateTimeFormatOptions = {
 
 const zoneMakeIntl = (format: Intl.DateTimeFormat): DateTime.TimeZone.Named => {
   const zoneId = format.resolvedOptions().timeZone
-  if (validZoneCache.has(zoneId)) {
-    return validZoneCache.get(zoneId)!
+  const cached = validZoneCache.get(zoneId)
+  if (cached !== undefined) {
+    return cached
   }
   const zone = Object.create(ProtoTimeZoneNamed)
   zone.id = zoneId
@@ -386,16 +387,19 @@ const zoneMakeIntl = (format: Intl.DateTimeFormat): DateTime.TimeZone.Named => {
 
 /** @internal */
 export const zoneMakeNamedUnsafe = (zoneId: string): DateTime.TimeZone.Named => {
-  if (validZoneCache.has(zoneId)) {
-    return validZoneCache.get(zoneId)!
+  const cached = validZoneCache.get(zoneId)
+  if (cached !== undefined) {
+    return cached
   }
   try {
-    return zoneMakeIntl(
+    const zone = zoneMakeIntl(
       new Intl.DateTimeFormat("en-US", {
         ...formatOptions,
         timeZone: zoneId
       })
     )
+    validZoneCache.set(zoneId, zone)
+    return zone
   } catch {
     throw new IllegalArgumentError(`Invalid time zone: ${zoneId}`)
   }
@@ -571,7 +575,9 @@ export const toDate = (self: DateTime.DateTime): Date => {
     Number(parts[3].value),
     Number(parts[4].value),
     Number(parts[5].value),
-    Number(parts[6].value)
+    parts[6]?.type === "fractionalSecond"
+      ? Number(parts[6].value)
+      : ((self.epochMilliseconds % 1000) + 1000) % 1000
   )
   self.adjustedEpochMilliseconds = date.getTime()
   return date
@@ -661,14 +667,12 @@ export const getPart: {
 } = dual(2, (self: DateTime.DateTime, part: keyof DateTime.DateTime.PartsWithWeekday): number => toParts(self)[part])
 
 const setPartsDate = (date: Date, parts: Partial<DateTime.DateTime.PartsWithWeekday>): void => {
-  if (parts.year !== undefined) {
-    date.setUTCFullYear(parts.year)
-  }
-  if (parts.month !== undefined) {
-    date.setUTCMonth(parts.month - 1)
-  }
-  if (parts.day !== undefined) {
-    date.setUTCDate(parts.day)
+  if (parts.year !== undefined || parts.month !== undefined || parts.day !== undefined) {
+    date.setUTCFullYear(
+      parts.year ?? date.getUTCFullYear(),
+      parts.month !== undefined ? parts.month - 1 : date.getUTCMonth(),
+      parts.day ?? date.getUTCDate()
+    )
   }
   if (parts.weekDay !== undefined) {
     const diff = parts.weekDay - date.getUTCDay()
@@ -930,10 +934,6 @@ export const subtractDuration: {
     mapEpochMillis(self, (millis) => millis - Duration.toMillis(Duration.fromInputUnsafe(duration)))
 )
 
-const addMillis = (date: Date, amount: number): void => {
-  date.setTime(date.getTime() + amount)
-}
-
 /** @internal */
 export const add: {
   (
@@ -945,20 +945,26 @@ export const add: {
   ): A
 } = dual(
   2,
-  (self: DateTime.DateTime, parts: Partial<DateTime.DateTime.PartsForMath>): DateTime.DateTime =>
-    mutate(self, (date) => {
+  (self: DateTime.DateTime, parts: Partial<DateTime.DateTime.PartsForMath>): DateTime.DateTime => {
+    // time units move the instant, calendar units move the wall clock
+    const shifted = mutateUtc(self, (date) => {
       if (parts.milliseconds) {
-        addMillis(date, parts.milliseconds)
+        date.setTime(date.getTime() + parts.milliseconds)
       }
       if (parts.seconds) {
-        addMillis(date, parts.seconds * 1000)
+        date.setTime(date.getTime() + parts.seconds * 1000)
       }
       if (parts.minutes) {
-        addMillis(date, parts.minutes * 60 * 1000)
+        date.setTime(date.getTime() + parts.minutes * 60 * 1000)
       }
       if (parts.hours) {
-        addMillis(date, parts.hours * 60 * 60 * 1000)
+        date.setTime(date.getTime() + parts.hours * 60 * 60 * 1000)
       }
+    })
+    if (!parts.days && !parts.weeks && !parts.months && !parts.years) {
+      return shifted
+    }
+    return mutate(shifted, (date) => {
       if (parts.days) {
         date.setUTCDate(date.getUTCDate() + parts.days)
       }
@@ -985,6 +991,7 @@ export const add: {
         }
       }
     })
+  }
 )
 
 /** @internal */

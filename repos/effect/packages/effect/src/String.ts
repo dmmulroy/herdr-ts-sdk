@@ -6,6 +6,7 @@
  * padding, replacement, normalization, safe character access, search helpers
  * that return `Option`, and joining strings through a reducer.
  *
+ * @stability stable
  * @since 2.0.0
  */
 
@@ -13,6 +14,7 @@ import type { NonEmptyArray } from "./Array.ts"
 import * as Equ from "./Equivalence.ts"
 import { dual } from "./Function.ts"
 import * as readonlyArray from "./internal/array.ts"
+import * as Count from "./internal/count.ts"
 import * as number from "./Number.ts"
 import * as Option from "./Option.ts"
 import * as order from "./Order.ts"
@@ -36,6 +38,7 @@ import * as Reducer from "./Reducer.ts"
  *
  * @see {@link isString} for checking whether a value is a primitive string
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -53,6 +56,7 @@ export const String = globalThis.String
  * String.isString(1) // => false
  * ```
  *
+ * @stability stable
  * @category guards
  * @since 2.0.0
  */
@@ -72,6 +76,7 @@ export const isString: Refinement<unknown, string> = predicate.isString
  * String.Order("apple", "apple") // => 0
  * ```
  *
+ * @stability stable
  * @category instances
  * @since 2.0.0
  */
@@ -89,6 +94,7 @@ export const Order: order.Order<string> = order.String
  * String.Equivalence("hello", "world") // => false
  * ```
  *
+ * @stability stable
  * @category instances
  * @since 2.0.0
  */
@@ -110,6 +116,7 @@ export const Equivalence: Equ.Equivalence<string> = Equ.String
  * String.isEmpty(String.empty) // => true
  * ```
  *
+ * @stability stable
  * @category constants
  * @since 2.0.0
  */
@@ -129,6 +136,7 @@ export const empty: "" = "" as const
  * const witness: Result = "helloworld"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -146,6 +154,7 @@ export type Concat<A extends string, B extends string> = `${A}${B}`
  * pipe("hello", String.concat("world")) // => "helloworld"
  * ```
  *
+ * @stability stable
  * @category combining
  * @since 2.0.0
  */
@@ -166,6 +175,7 @@ export const concat: {
  * String.toUpperCase("hello") // => "HELLO"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -183,6 +193,7 @@ export const toUpperCase = <S extends string>(self: S): Uppercase<S> => self.toU
  * String.toLowerCase("HELLO") // => "hello"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -200,6 +211,7 @@ export const toLowerCase = <T extends string>(self: T): Lowercase<T> => self.toL
  * String.capitalize("hello") // => "Hello"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -221,6 +233,7 @@ export const capitalize = <T extends string>(self: T): Capitalize<T> => {
  * String.uncapitalize("Hello") // => "hello"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -247,6 +260,7 @@ export const uncapitalize = <T extends string>(self: T): Uncapitalize<T> => {
  * pipe("hello world", String.replace("world", "Effect")) // => "hello Effect"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -266,6 +280,7 @@ export const replace = (searchValue: string | RegExp, replaceValue: string) => (
  * const witness: Result = "hello"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -283,6 +298,7 @@ export type Trim<A extends string> = TrimEnd<TrimStart<A>>
  * String.trim("  hello world  ") // => "hello world"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -301,6 +317,7 @@ export const trim = <A extends string>(self: A): Trim<A> => self.trim() as Trim<
  * const witness: Result = "hello"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -318,6 +335,7 @@ export type TrimStart<A extends string> = A extends `${" " | "\n" | "\t" | "\r"}
  * String.trimStart("  hello world") // => "hello world"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -336,6 +354,7 @@ export const trimStart = <A extends string>(self: A): TrimStart<A> => self.trimS
  * const witness: Result = "hello"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -353,6 +372,7 @@ export type TrimEnd<A extends string> = A extends `${infer B}${" " | "\n" | "\t"
  * String.trimEnd("hello world  ") // => "hello world"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -370,6 +390,7 @@ export const trimEnd = <A extends string>(self: A): TrimEnd<A> => self.trimEnd()
  * pipe("hello world", String.slice(0, 5)) // => "hello"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -387,6 +408,7 @@ export const slice = (start?: number, end?: number) => (self: string): string =>
  * String.isEmpty("a") // => false
  * ```
  *
+ * @stability stable
  * @category guards
  * @since 2.0.0
  */
@@ -404,6 +426,7 @@ export const isEmpty = (self: string): self is "" => self.length === 0
  * String.isNonEmpty("a") // => true
  * ```
  *
+ * @stability stable
  * @category predicates
  * @since 2.0.0
  */
@@ -420,6 +443,7 @@ export const isNonEmpty = (self: string): boolean => self.length > 0
  * String.length("abc") // => 3
  * ```
  *
+ * @stability stable
  * @category getters
  * @since 2.0.0
  */
@@ -438,6 +462,7 @@ export const length = (self: string): number => self.length
  * String.split("hello,world", ",") // => ["hello", "world"]
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -462,6 +487,7 @@ export const split: {
  * pipe("hello world", String.includes("foo")) // => false
  * ```
  *
+ * @stability stable
  * @category predicates
  * @since 2.0.0
  */
@@ -480,6 +506,7 @@ export const includes = (searchString: string, position?: number) => (self: stri
  * pipe("hello world", String.startsWith("world")) // => false
  * ```
  *
+ * @stability stable
  * @category predicates
  * @since 2.0.0
  */
@@ -498,6 +525,7 @@ export const startsWith = (searchString: string, position?: number) => (self: st
  * pipe("hello world", String.endsWith("hello")) // => false
  * ```
  *
+ * @stability stable
  * @category predicates
  * @since 2.0.0
  */
@@ -516,6 +544,7 @@ export const endsWith = (searchString: string, position?: number) => (self: stri
  * String.charCodeAt("abc", 4) // => Option.none()
  * ```
  *
+ * @stability stable
  * @category getters
  * @since 2.0.0
  */
@@ -540,6 +569,7 @@ export const charCodeAt: {
  * pipe("abcd", String.substring(1, 3)) // => "bc"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -557,6 +587,7 @@ export const substring = (start: number, end?: number) => (self: string): string
  * pipe("abc", String.at(4)) // => Option.none()
  * ```
  *
+ * @stability stable
  * @category getters
  * @since 2.0.0
  */
@@ -577,6 +608,7 @@ export const at: {
  * pipe("abc", String.charAt(4)) // => Option.none()
  * ```
  *
+ * @stability stable
  * @category getters
  * @since 2.0.0
  */
@@ -600,6 +632,7 @@ export const charAt: {
  * pipe("abc", String.codePointAt(10)) // => Option.none()
  * ```
  *
+ * @stability stable
  * @category getters
  * @since 2.0.0
  */
@@ -620,6 +653,7 @@ export const codePointAt: {
  * pipe("abbbc", String.indexOf("z")) // => Option.none()
  * ```
  *
+ * @stability stable
  * @category searching
  * @since 2.0.0
  */
@@ -638,6 +672,7 @@ export const indexOf = (searchString: string) => (self: string): Option.Option<n
  * pipe("abbbc", String.lastIndexOf("d")) // => Option.none()
  * ```
  *
+ * @stability stable
  * @category searching
  * @since 2.0.0
  */
@@ -659,6 +694,7 @@ export const lastIndexOf = (searchString: string) => (self: string): Option.Opti
  * pipe("a", String.localeCompare("a")) // => 0
  * ```
  *
+ * @stability stable
  * @category comparisons
  * @since 2.0.0
  */
@@ -683,6 +719,7 @@ export const localeCompare =
  * pipe("hello", String.match(/x/)) // => Option.none()
  * ```
  *
+ * @stability stable
  * @category searching
  * @since 2.0.0
  */
@@ -703,6 +740,7 @@ export const match = (regExp: RegExp | string) => (self: string): Option.Option<
  * Array.from(matches, (match) => [match[0], match.index]) // => [["l", 2], ["l", 3], ["l", 9]]
  * ```
  *
+ * @stability stable
  * @category searching
  * @since 2.0.0
  */
@@ -730,6 +768,7 @@ export const matchAll = (regExp: RegExp) => (self: string): IterableIterator<Reg
  * ) // => [0x73, 0x323, 0x307]
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -747,6 +786,7 @@ export const normalize = (form?: "NFC" | "NFD" | "NFKC" | "NFKD") => (self: stri
  * pipe("a", String.padEnd(5, "_")) // => "a____"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -765,6 +805,7 @@ export const padEnd = (maxLength: number, fillString?: string) => (self: string)
  * pipe("a", String.padStart(5, "_")) // => "____a"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -773,6 +814,10 @@ export const padStart = (maxLength: number, fillString?: string) => (self: strin
 
 /**
  * Repeats the string the specified number of times.
+ *
+ * **Details**
+ *
+ * `count` is rounded down. `NaN` and non-positive values are treated as `0`.
  *
  * **Example** (Repeating strings)
  *
@@ -783,10 +828,11 @@ export const padStart = (maxLength: number, fillString?: string) => (self: strin
  * pipe("hello", String.repeat(3)) // => "hellohellohello"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
-export const repeat = (count: number) => (self: string): string => self.repeat(count)
+export const repeat = (count: number) => (self: string): string => self.repeat(Count.normalize(count))
 
 /**
  * Replaces all occurrences of a substring or pattern in a string.
@@ -800,6 +846,7 @@ export const repeat = (count: number) => (self: string): string => self.repeat(c
  * pipe("ababb", String.replaceAll(/ba/g, "cc")) // => "accbb"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -820,6 +867,7 @@ export const replaceAll = (searchValue: string | RegExp, replaceValue: string) =
  * String.search("ababb", "d") // => Option.none()
  * ```
  *
+ * @stability stable
  * @category searching
  * @since 2.0.0
  */
@@ -844,6 +892,7 @@ export const search: {
  * pipe(str, String.toLocaleLowerCase("tr")) // => "i"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -862,6 +911,7 @@ export const toLocaleLowerCase = (locale?: string | Array<string>) => (self: str
  * pipe(str, String.toLocaleUpperCase("lt-LT")) // => "I"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -876,7 +926,8 @@ export const toLocaleUpperCase = (locale?: string | Array<string>) => (self: str
  * If `n` is larger than the available number of characters, the string will
  * be returned whole.
  *
- * If `n` is not a positive number, an empty string will be returned.
+ * If `n` is not a positive number, including `NaN`, an empty string will be
+ * returned.
  *
  * If `n` is a float, it will be rounded down to the nearest integer.
  *
@@ -888,13 +939,14 @@ export const toLocaleUpperCase = (locale?: string | Array<string>) => (self: str
  * String.takeLeft("Hello World", 5) // => "Hello"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
 export const takeLeft: {
   (n: number): (self: string) => string
   (self: string, n: number): string
-} = dual(2, (self: string, n: number): string => self.slice(0, Math.max(n, 0)))
+} = dual(2, (self: string, n: number): string => self.slice(0, Count.normalize(n)))
 
 /**
  * Keeps the specified number of characters from the end of a string.
@@ -904,7 +956,8 @@ export const takeLeft: {
  * If `n` is larger than the available number of characters, the string will
  * be returned whole.
  *
- * If `n` is not a positive number, an empty string will be returned.
+ * If `n` is not a positive number, including `NaN`, an empty string will be
+ * returned.
  *
  * If `n` is a float, it will be rounded down to the nearest integer.
  *
@@ -916,6 +969,7 @@ export const takeLeft: {
  * String.takeRight("Hello World", 5) // => "World"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -924,7 +978,7 @@ export const takeRight: {
   (self: string, n: number): string
 } = dual(
   2,
-  (self: string, n: number): string => self.slice(Math.max(0, self.length - Math.floor(n)), Infinity)
+  (self: string, n: number): string => self.slice(self.length - Math.min(Count.normalize(n), self.length), Infinity)
 )
 
 const CR = 0x0d
@@ -942,6 +996,7 @@ const LF = 0x0a
  * Array.from(String.linesIterator("hello\nworld\n")) // => ["hello", "world"]
  * ```
  *
+ * @stability stable
  * @category splitting
  * @since 2.0.0
  */
@@ -959,6 +1014,7 @@ export const linesIterator = (self: string): LinesIterator => linesSeparated(sel
  * Array.from(String.linesWithSeparators("hello\nworld\n")) // => ["hello\n", "world\n"]
  * ```
  *
+ * @stability stable
  * @category splitting
  * @since 2.0.0
  */
@@ -976,6 +1032,7 @@ export const linesWithSeparators = (s: string): LinesIterator => linesSeparated(
  * String.stripMarginWith("  |hello\n  |world", "|") // => "hello\nworld"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -1013,6 +1070,7 @@ export const stripMarginWith: {
  * String.stripMargin("  |hello\n  |world") // => "hello\nworld"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -1020,6 +1078,12 @@ export const stripMargin = (self: string): string => stripMarginWith(self, "|")
 
 /**
  * Converts a snake_case string to camelCase.
+ *
+ * **Details**
+ *
+ * Keeps the first character, then replaces each later underscore and the
+ * character after it with that character uppercased. A trailing underscore is
+ * dropped. Input made only of an even number of underscores returns `""`.
  *
  * **Example** (Converting snake_case to camelCase)
  *
@@ -1030,20 +1094,27 @@ export const stripMargin = (self: string): string => stripMarginWith(self, "|")
  * String.snakeToCamel("foo_bar_baz") // => "fooBarBaz"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
 export const snakeToCamel = (self: string): string => {
-  if (self.length === 0) return self
+  if (self.length === 0 || (self.length % 2 === 0 && self[0] === "_" && /^_+$/.test(self))) return ""
   let str = self[0]
   for (let i = 1; i < self.length; i++) {
-    str += self[i] === "_" ? self[++i].toUpperCase() : self[i]
+    str += self[i] === "_" ? self.charAt(++i).toUpperCase() : self[i]
   }
   return str
 }
 
 /**
  * Converts a snake_case string to PascalCase.
+ *
+ * **Details**
+ *
+ * Uppercases the first character, then replaces each later underscore and the
+ * character after it with that character uppercased. A trailing underscore is
+ * dropped. Input made only of an even number of underscores returns `""`.
  *
  * **Example** (Converting snake_case to PascalCase)
  *
@@ -1054,14 +1125,15 @@ export const snakeToCamel = (self: string): string => {
  * String.snakeToPascal("foo_bar_baz") // => "FooBarBaz"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
 export const snakeToPascal = (self: string): string => {
-  if (self.length === 0) return self
+  if (self.length === 0 || (self.length % 2 === 0 && self[0] === "_" && /^_+$/.test(self))) return ""
   let str = self[0].toUpperCase()
   for (let i = 1; i < self.length; i++) {
-    str += self[i] === "_" ? self[++i].toUpperCase() : self[i]
+    str += self[i] === "_" ? self.charAt(++i).toUpperCase() : self[i]
   }
   return str
 }
@@ -1078,6 +1150,7 @@ export const snakeToPascal = (self: string): string => {
  * String.snakeToKebab("foo_bar_baz") // => "foo-bar-baz"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -1095,6 +1168,7 @@ export const snakeToKebab = (self: string): string => self.replace(/_/g, "-")
  * String.camelToSnake("fooBarBaz") // => "foo_bar_baz"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -1112,6 +1186,7 @@ export const camelToSnake = (self: string): string => self.replace(/([A-Z])/g, "
  * String.pascalToSnake("FooBarBaz") // => "foo_bar_baz"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -1130,6 +1205,7 @@ export const pascalToSnake = (self: string): string =>
  * String.kebabToSnake("foo-bar-baz") // => "foo_bar_baz"
  * ```
  *
+ * @stability stable
  * @category transforming
  * @since 2.0.0
  */
@@ -1214,6 +1290,7 @@ const linesSeparated = (self: string, stripped: boolean): LinesIterator => new L
  * @see {@link kebabCase} for fixed lowercase hyphen-separated output
  * @see {@link snakeCase} for fixed lowercase underscore-separated output
  *
+ * @stability stable
  * @category transforming
  * @since 4.0.0
  */
@@ -1269,6 +1346,7 @@ const normalizeCase = (
   while (result.charAt(end - 1) === "\0") {
     end--
   }
+  if (start >= end) return ""
 
   // Transform each token independently.
   return result.slice(start, end).split("\0").map(transform).join(delimiter)
@@ -1302,6 +1380,7 @@ const pascalCaseTransform = (input: string): string => {
  * @see {@link noCase} for configurable delimiters and part transforms
  * @see {@link snakeToPascal} for converting known snake_case input only
  *
+ * @stability stable
  * @category transforming
  * @since 4.0.0
  */
@@ -1329,6 +1408,7 @@ const camelCaseTransform = (input: string, index: number): string =>
  * @see {@link kebabCase} for lowercase hyphen-separated output
  * @see {@link constantCase} for uppercase underscore-separated output
  *
+ * @stability stable
  * @category transforming
  * @since 4.0.0
  */
@@ -1352,6 +1432,7 @@ export const camelCase: (self: string) => string = noCase({
  * @see {@link configCase} for configuration key casing that preserves numeric word groups
  * @see {@link noCase} for configurable delimiters and part transforms
  *
+ * @stability stable
  * @category transforming
  * @since 4.0.0
  */
@@ -1375,6 +1456,7 @@ export const constantCase: (self: string) => string = noCase({
  * example, `"api-v2 xml"` becomes `"API_V2_XML"`.
  *
  * @see {@link constantCase} for standard uppercase underscore-separated output
+ * @stability stable
  * @category transforming
  * @since 4.0.0
  */
@@ -1395,6 +1477,7 @@ export const configCase: (self: string) => string = (self) =>
  * @see {@link camelCase} for lower-initial camelCase output
  * @see {@link pascalCase} for upper-initial PascalCase output
  *
+ * @stability stable
  * @category transforming
  * @since 4.0.0
  */
@@ -1414,6 +1497,7 @@ export const kebabCase: (self: string) => string = noCase({
  * @see {@link kebabCase} for lowercase hyphen-separated output
  * @see {@link constantCase} for uppercase underscore-separated output
  *
+ * @stability stable
  * @category transforming
  * @since 4.0.0
  */
@@ -1434,6 +1518,7 @@ export const snakeCase: (self: string) => string = noCase({
  *
  * @see {@link concat} for concatenating two strings directly
  *
+ * @stability stable
  * @category combining
  * @since 4.0.0
  */

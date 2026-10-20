@@ -8,6 +8,7 @@
  * exports database bytes, forwards update-hook notifications, and closes when
  * requested. It is meant to run in a dedicated worker or a `SharedWorker`.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 /// <reference lib="webworker" />
@@ -16,7 +17,7 @@ import * as WaSqlite from "@effect/wa-sqlite"
 import SQLiteESMFactory from "@effect/wa-sqlite/dist/wa-sqlite.mjs"
 import { AccessHandlePoolVFS } from "@effect/wa-sqlite/src/examples/AccessHandlePoolVFS.js"
 import * as Effect from "effect/Effect"
-import { classifySqliteError, SqlError } from "effect/unstable/sql/SqlError"
+import { classifySqliteError, SqlError } from "effect/sql/SqlError"
 import type { OpfsWorkerMessage } from "./internal/opfsWorker.ts"
 
 const classifyError = (cause: unknown, message: string, operation: string) =>
@@ -25,17 +26,19 @@ const classifyError = (cause: unknown, message: string, operation: string) =>
 /**
  * Configuration for the SQLite OPFS worker, including the message port used for the client protocol and the OPFS database name to open.
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
 export interface OpfsWorkerConfig {
-  readonly port: EventTarget & Pick<MessagePort, "postMessage" | "close">
+  readonly port: EventTarget & Pick<MessagePort, "postMessage" | "close"> & Partial<Pick<MessagePort, "start">>
   readonly dbName: string
 }
 
 /**
  * Runs the SQLite OPFS worker loop, opening the configured database, posting a ready message, handling query/import/export/update-hook messages, and closing when a close message is received.
  *
+ * @stability unstable
  * @category running
  * @since 4.0.0
  */
@@ -94,13 +97,15 @@ export const run = (
               const [id, sql, params] = message
               messageId = id
               const results: Array<any> = []
-              let columns: Array<string> | undefined
+              const columns: Array<Array<string>> = []
               for (const stmt of sqlite3.statements(db, sql)) {
+                let statementColumns: Array<string> | undefined
                 sqlite3.bind_collection(stmt, params as any)
                 while (sqlite3.step(stmt) === WaSqlite.SQLITE_ROW) {
-                  columns = columns ?? sqlite3.column_names(stmt)
+                  statementColumns = statementColumns ?? sqlite3.column_names(stmt)
                   const row = sqlite3.row(stmt)
                   results.push(row)
+                  columns.push(statementColumns)
                 }
               }
               options.port.postMessage([id, undefined, [columns, results]])
@@ -109,10 +114,12 @@ export const run = (
           }
         } catch (e: any) {
           const message = "message" in e ? e.message : String(e)
-          options.port.postMessage([messageId!, message, undefined])
+          const error = typeof e.code === "number" ? { message, code: e.code } : message
+          options.port.postMessage([messageId!, error, undefined])
         }
       }
       options.port.addEventListener("message", onMessage)
+      options.port.start?.()
       options.port.postMessage(["ready", undefined, undefined])
       return Effect.sync(() => {
         options.port.removeEventListener("message", onMessage)

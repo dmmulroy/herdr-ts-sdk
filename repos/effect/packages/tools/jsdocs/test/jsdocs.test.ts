@@ -1,4 +1,4 @@
-import { computeJSDocInputHash, extractJSDocsSync, parseJSDoc } from "@effect/jsdocs"
+import { computeJSDocInputHash, extractJSDocsSync, loadJSDocConfig, parseJSDoc } from "@effect/jsdocs"
 import { assert, describe, it } from "@effect/vitest"
 import * as fs from "node:fs"
 import * as os from "node:os"
@@ -7,6 +7,102 @@ import * as ts from "typescript"
 
 interface SourceFileWithParseDiagnostics extends ts.SourceFile {
   readonly parseDiagnostics: ReadonlyArray<ts.Diagnostic>
+}
+
+const stabilityResult = (tag: string) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "jsdocs-stability-"))
+  try {
+    fs.mkdirSync(path.join(cwd, "src"))
+    fs.writeFileSync(
+      path.join(cwd, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022" },
+        include: ["src/**/*.ts"]
+      })
+    )
+    fs.writeFileSync(
+      path.join(cwd, "package.json"),
+      JSON.stringify({
+        name: "@effect/sample",
+        type: "module",
+        exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
+      })
+    )
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
+    fs.writeFileSync(
+      path.join(cwd, "src/Foo.ts"),
+      `/**
+ * Creates a value.
+ *
+ * ${tag}
+ * @category constructors
+ * @since 1.0.0
+ */
+export const makeValue = () => 1
+`
+    )
+    const model = extractJSDocsSync({
+      cwd,
+      tsconfig: "tsconfig.json",
+      include: ["src/**/*.ts"],
+      output: ".data/jsdocs.json"
+    })
+    return {
+      diagnostics: model.files.flatMap((file) => file.diagnostics.map((diagnostic) => diagnostic.code)),
+      stability: model.apis.find((api) => api.apiFqn === "@effect/sample/Foo.makeValue")?.tags.stability
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true })
+  }
+}
+
+const missingStabilityDiagnostics = (files: Record<string, string>, moduleStability = "@stability stable") => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "jsdocs-require-stability-"))
+  try {
+    fs.mkdirSync(path.join(cwd, "src"))
+    fs.writeFileSync(
+      path.join(cwd, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022" },
+        include: ["src/**/*.ts"]
+      })
+    )
+    fs.writeFileSync(
+      path.join(cwd, "package.json"),
+      JSON.stringify({ name: "@effect/sample", type: "module", exports: { "./*": "./src/*.ts" } })
+    )
+    for (const [file, source] of Object.entries(files)) {
+      fs.writeFileSync(
+        path.join(cwd, "src", file),
+        `/**
+ * Module.
+ *
+ * ${moduleStability}
+ * @since 1.0.0
+ */
+import type {} from "node:fs"
+
+${source}`
+      )
+    }
+    const model = extractJSDocsSync({ cwd, tsconfig: "tsconfig.json", include: ["src/**/*.ts"], output: "out.json" })
+    return Object.fromEntries(
+      Object.keys(files).map((file) => [
+        file,
+        model.files.find((modelFile) => modelFile.file === `src/${file}`)?.diagnostics.map((item) => item.message) ??
+          []
+      ])
+    )
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true })
+  }
 }
 
 const signatureParseDiagnostics = (signature: string): ReadonlyArray<string> =>
@@ -31,6 +127,200 @@ describe("jsdocs", () => {
     if (result._tag === "Success") {
       assert.strictEqual(result.value.description.short, "Creates a value.")
     }
+  })
+
+  it("accepts unstable declarations", () => {
+    const result = parseJSDoc(`/**
+ * Creates an unstable value.
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 1.0.0
+ */`)
+    assert.strictEqual(result._tag, "Success")
+  })
+
+  it("accepts experimental declarations", () => {
+    assert.deepStrictEqual(stabilityResult("@stability experimental"), {
+      diagnostics: [],
+      stability: "experimental"
+    })
+  })
+
+  it("accepts explicit stable declarations", () => {
+    assert.deepStrictEqual(stabilityResult("@stability stable"), {
+      diagnostics: [],
+      stability: "stable"
+    })
+  })
+
+  it("rejects unknown stability values", () => {
+    assert.deepStrictEqual(stabilityResult("@stability bogus").diagnostics, ["invalid-stability"])
+  })
+
+  it("requires @stability on directly importable declarations", () => {
+    assert.deepStrictEqual(
+      missingStabilityDiagnostics({
+        "Declaration.ts": `/**
+ * A value.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const value = 1
+`,
+        "Specifier.ts": `const value = 1
+
+export {
+  /**
+   * A value.
+   *
+   * @category constructors
+   * @since 1.0.0
+   */
+  value
+}
+`,
+        "Namespace.ts": `/**
+ * A group.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export declare namespace Group {}
+`,
+        "Nested.ts": `/**
+ * A group.
+ *
+ * @stability stable
+ * @category models
+ * @since 1.0.0
+ */
+export declare namespace Group {
+  /**
+   * Declarations inside a namespace do not require a stability tag.
+   *
+   * @category models
+   * @since 1.0.0
+   */
+  export interface Item {
+    /**
+     * Members do not require a stability tag.
+     */
+    readonly id: string
+  }
+}
+`
+      }),
+      {
+        "Declaration.ts": ["Public JSDoc must include @stability"],
+        "Specifier.ts": ["Public JSDoc must include @stability"],
+        "Namespace.ts": ["Public JSDoc must include @stability"],
+        "Nested.ts": []
+      }
+    )
+  })
+
+  it("requires @stability on module JSDoc", () => {
+    assert.deepStrictEqual(missingStabilityDiagnostics({ "Module.ts": "" }, "Has no stability tag."), {
+      "Module.ts": ["Module JSDoc must include @stability"]
+    })
+  })
+
+  it("requires @stability on namespace re-exports", () => {
+    assert.deepStrictEqual(
+      missingStabilityDiagnostics({
+        "Missing.ts": `/**
+ * Re-exports a module.
+ *
+ * @category exports
+ * @since 1.0.0
+ */
+export * as Target from "./Target.ts"
+`,
+        "Tagged.ts": `/**
+ * Re-exports a module.
+ *
+ * @stability stable
+ * @category exports
+ * @since 1.0.0
+ */
+export * as Target from "./Target.ts"
+`,
+        "Target.ts": `/**
+ * A value.
+ *
+ * @stability stable
+ * @category constructors
+ * @since 1.0.0
+ */
+export const value = 1
+`
+      }),
+      {
+        "Missing.ts": ["Public JSDoc must include @stability"],
+        "Tagged.ts": [],
+        "Target.ts": []
+      }
+    )
+  })
+
+  it("checks hand-maintained public index exports with the repository JSDoc config", () => {
+    const config = loadJSDocConfig(path.resolve(import.meta.dirname, "../../../.."))
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "jsdocs-public-index-"))
+    try {
+      const packageRoot = path.join(cwd, "packages/atom/vue")
+      fs.mkdirSync(path.join(packageRoot, "src"), { recursive: true })
+      fs.writeFileSync(
+        path.join(cwd, config.tsconfig),
+        JSON.stringify({
+          compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022" },
+          include: ["packages/**/src/**/*.ts"]
+        })
+      )
+      fs.writeFileSync(
+        path.join(packageRoot, "package.json"),
+        JSON.stringify({ name: "@effect/atom-vue", type: "module", exports: { ".": "./src/index.ts" } })
+      )
+      fs.writeFileSync(
+        path.join(packageRoot, "src/index.ts"),
+        `/**
+ * Public entry point.
+ *
+ * @stability unstable
+ * @since 1.0.0
+ */
+import type {} from "node:fs"
+
+/**
+ * A directly importable value.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const value = 1
+`
+      )
+      const model = extractJSDocsSync({ ...config, cwd })
+      assert.deepStrictEqual(
+        model.files.find((file) => file.file === "packages/atom/vue/src/index.ts")?.diagnostics
+          .filter((diagnostic) => diagnostic.code === "missing-tag")
+          .map((diagnostic) => diagnostic.message),
+        ["Public JSDoc must include @stability"]
+      )
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects duplicate stability tags", () => {
+    assert.deepStrictEqual(stabilityResult("@stability unstable\n * @stability unstable").diagnostics, [
+      "duplicate-tag"
+    ])
+  })
+
+  it("rejects legacy unstable tags", () => {
+    assert.deepStrictEqual(stabilityResult("@unstable").diagnostics, ["forbidden-tag", "missing-tag"])
   })
 
   it("accepts doctest metadata on TypeScript fences", () => {
@@ -89,7 +379,7 @@ describe("jsdocs", () => {
     }
   })
 
-  it("extracts docs with TypeScript", () => {
+  it("refreshes extracted docs after a source change", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "jsdocs-"))
     fs.mkdirSync(path.join(cwd, "src"), { recursive: true })
     fs.writeFileSync(
@@ -107,26 +397,39 @@ describe("jsdocs", () => {
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
  * Creates a value.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
 export const makeValue = () => 1
 `
     )
-    const model = extractJSDocsSync({
+    const options = {
       cwd,
       tsconfig: "tsconfig.json",
       include: ["src/**/*.ts"],
       output: ".data/jsdocs.json"
-    })
-    assert.strictEqual(model.version, 2)
-    assert.strictEqual(model.files.length, 1)
+    }
+    const model = extractJSDocsSync(options)
+    assert.strictEqual(model.version, 3)
+    assert.deepStrictEqual(model.files.map((file) => file.file), ["src/Foo.ts", "src/index.ts"])
+    const index = model.files.find((file) => file.file === "src/index.ts")
+    assert.deepStrictEqual(index?.diagnostics, [])
+    assert.strictEqual(index?.namespaces[0]?.name, "Foo")
+    assert.strictEqual(model.apis.some((api) => api.apiFqn === "@effect/sample.Foo"), true)
     assert.strictEqual(model.files[0]?.declarations[0]?.name, "makeValue")
     assert.strictEqual(model.apis[0]?.apiFqn, "@effect/sample/Foo.makeValue")
     assert.deepStrictEqual(model.apis[0]?.importGuidance, {
@@ -134,6 +437,11 @@ export const makeValue = () => 1
       importDeclaration: "import { Foo } from \"@effect/sample\"",
       usage: "Foo.makeValue"
     })
+
+    const sourcePath = path.join(cwd, "src/Foo.ts")
+    fs.writeFileSync(sourcePath, fs.readFileSync(sourcePath, "utf8").replaceAll("makeValue", "makeUpdatedValue"))
+    const updated = extractJSDocsSync(options)
+    assert.strictEqual(updated.files[0]?.declarations[0]?.name, "makeUpdatedValue")
   })
 
   it("stores a stable input hash for cache checks", () => {
@@ -162,12 +470,20 @@ export const makeValue = () => 1
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
  * Creates a value.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -207,12 +523,20 @@ export const makeValue = () => 1
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/External.ts"),
       `/**
  * External value type.
  *
+ * @stability stable
  * @category models
  * @since 1.0.0
  */
@@ -223,6 +547,7 @@ export interface External {
 /**
  * Makes an external value.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -234,6 +559,7 @@ export const makeExternal = (value: string): External => ({ value })
       `/**
  * Parses a value.
  *
+ * @stability stable
  * @category parsing
  * @since 1.0.0
  */
@@ -246,6 +572,7 @@ export function parse(value: string | number) {
 /**
  * Converts a value.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -257,6 +584,7 @@ export {
   /**
    * Negates a value.
    *
+   * @stability stable
    * @category constructors
    * @since 1.0.0
    */
@@ -267,6 +595,7 @@ export {
   /**
    * Makes an external value.
    *
+   * @stability stable
    * @category constructors
    * @since 1.0.0
    */
@@ -279,6 +608,7 @@ export {
   /**
    * Attempts a value.
    *
+   * @stability stable
    * @category constructors
    * @since 1.0.0
    */
@@ -288,6 +618,7 @@ export {
 /**
  * Handles many overloads.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -311,6 +642,7 @@ export function many(value: number) {
 /**
  * Runs a value through a transform chain.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -382,6 +714,7 @@ interface Ctor<A extends Box<any>> {
 /**
  * Builds a boxed constructor.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -394,6 +727,7 @@ export function boxed<A extends Box<any>>(
 /**
  * Handles distinct overload modes.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -414,6 +748,7 @@ export function modes(...args: Array<any>) {
 /**
  * Service for sample values.
  *
+ * @stability stable
  * @category services
  * @since 1.0.0
  */
@@ -430,6 +765,7 @@ export class Service {
 /**
  * Default count.
  *
+ * @stability stable
  * @category constants
  * @since 1.0.0
  */
@@ -438,6 +774,7 @@ export const count = 1
 /**
  * Sample value type.
  *
+ * @stability stable
  * @category models
  * @since 1.0.0
  */
@@ -522,7 +859,14 @@ export { _try as try }`
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
@@ -538,6 +882,7 @@ export { _try as try }`
  * \`\`\`
  *
  * @see {@link makeValue}
+ * @stability stable
  * @since 1.0.0
  */
 import type { Buffer } from "node:buffer"
@@ -545,6 +890,7 @@ import type { Buffer } from "node:buffer"
 /**
  * Creates a value.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -579,12 +925,20 @@ export const makeValue = () => 1
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
  * Creates a value.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -619,13 +973,21 @@ export const makeValue = () => 1
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(path.join(cwd, "src/Schema.ts"), `export {}\n`)
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
  * Creates a value with the {@link Schema} module.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -666,7 +1028,14 @@ export const makeValue = () => 1
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
@@ -677,6 +1046,7 @@ export const makeValue = () => 1
  * \`\`\`
  *
  * @see {@link Hidden}
+ * @stability stable
  */
 import type { Buffer } from "node:buffer"
 
@@ -685,6 +1055,7 @@ class Hidden {}
 /**
  * Creates a value.
  *
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -722,12 +1093,20 @@ export const makeValue = () => 1
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
  * A documented container.
  *
+ * @stability stable
  * @category models
  * @since 1.0.0
  */
@@ -740,6 +1119,7 @@ export interface Box {
  * Uses the hidden member.
  *
  * @see {@link Box.hidden}
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -783,13 +1163,26 @@ export const useHidden = () => undefined
     )
     fs.writeFileSync(
       path.join(cwd, "src/index.ts"),
-      `export * as Eq from "./Eq.ts"\nexport * as Ordering from "./Ordering.ts"\nexport * as Reducer from "./Reducer.ts"\n`
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Eq from "./Eq.ts"\n/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Ordering from "./Ordering.ts"\n/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Reducer from "./Reducer.ts"\n`
     )
     fs.writeFileSync(
       path.join(cwd, "src/Reducer.ts"),
       `/**
  * A reusable reducer.
  *
+ * @stability stable
  * @category models
  * @since 1.0.0
  */
@@ -806,6 +1199,7 @@ export interface Reducer {
       `/**
  * Ordering reducer value.
  *
+ * @stability stable
  * @category constants
  * @since 1.0.0
  */
@@ -820,6 +1214,7 @@ export const Reducer = "ordering"
  * Creates an equivalence reducer.
  *
  * @see {@link Reducer}
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -860,12 +1255,20 @@ export const makeReducer = () => Reducer
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
  * Private helper.
  *
+ * @stability stable
  * @category models
  * @since 1.0.0
  */
@@ -875,6 +1278,7 @@ class Hidden {}
  * Uses a hidden helper.
  *
  * @see {@link Hidden}
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -919,13 +1323,22 @@ export const useHidden = () => Hidden
     )
     fs.writeFileSync(
       path.join(cwd, "src/index.ts"),
-      `export * as Bar from "./Bar.ts"\nexport * as Foo from "./Foo.ts"\n`
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Bar from "./Bar.ts"\n/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
     )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
  * Target value.
  *
+ * @stability stable
  * @category constants
  * @since 1.0.0
  */
@@ -940,6 +1353,7 @@ export const Target = "target"
  * const value = "broken"
  * \`\`\`
  *
+ * @stability stable
  * @category constants
  * @since 1.0.0
  */
@@ -954,6 +1368,7 @@ export const Broken = "broken"
  * Uses the target value.
  *
  * @see {@link Foo.Target} for the target value
+ * @stability stable
  * @category constants
  * @since 1.0.0
  */
@@ -997,10 +1412,18 @@ export const useTarget = () => Foo.Target
         exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
       })
     )
-    fs.writeFileSync(path.join(cwd, "src/index.ts"), `export * as Foo from "./Foo.ts"\n`)
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
     fs.writeFileSync(
       path.join(cwd, "src/Foo.ts"),
       `/**
+ * @stability stable
  * @since 1.0.0
  */
 const Array_ = "array"
@@ -1009,6 +1432,7 @@ export {
   /**
    * Public array helper.
    *
+   * @stability stable
    * @category constructors
    * @since 1.0.0
    */
@@ -1020,6 +1444,7 @@ export {
  *
  * @see {@link Array_}
  * @see {@link Array}
+ * @stability stable
  * @category constructors
  * @since 1.0.0
  */
@@ -1044,5 +1469,156 @@ export const Tuple = Array
       apiId: "root-declaration:value:@effect/sample/Foo.Array",
       apiFqn: "@effect/sample/Foo.Array"
     }])
+  })
+
+  it("accepts @stability unstable on module, member, and namespace docs", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "jsdocs-"))
+    fs.mkdirSync(path.join(cwd, "src"), { recursive: true })
+    fs.writeFileSync(
+      path.join(cwd, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", target: "ES2022" },
+        include: ["src/**/*.ts"]
+      })
+    )
+    fs.writeFileSync(
+      path.join(cwd, "package.json"),
+      JSON.stringify({
+        name: "@effect/sample",
+        type: "module",
+        exports: { ".": "./src/index.ts", "./*": "./src/*.ts" }
+      })
+    )
+    fs.writeFileSync(
+      path.join(cwd, "src/index.ts"),
+      `/**
+ * @stability stable
+ * @since 1.0.0
+ */
+export * as Foo from "./Foo.ts"\n`
+    )
+    fs.writeFileSync(
+      path.join(cwd, "src/Imported.ts"),
+      `/**
+ * Imported marker.
+ *
+ * @stability stable
+ * @category models
+ * @since 1.0.0
+ */
+export interface Marker {
+  readonly id: string
+}
+`
+    )
+    fs.writeFileSync(
+      path.join(cwd, "src/Foo.ts"),
+      `/**
+ * Sample module.
+ *
+ * @stability unstable
+ * @since 1.0.0
+ */
+import type { Marker } from "./Imported.ts"
+
+/**
+ * A boxed value.
+ *
+ * @stability stable
+ * @category models
+ * @since 1.0.0
+ */
+export interface Box {
+  /**
+   * The boxed text.
+   *
+   * @stability unstable
+   * @since 1.0.0
+   */
+  readonly value: Marker["id"]
+
+  /**
+   * The stable label.
+   *
+   * @since 1.0.0
+   */
+  readonly label: string
+}
+
+/**
+ * Groups boxed types.
+ *
+ * @stability unstable
+ * @category models
+ * @since 1.0.0
+ */
+export declare namespace Group {
+  /**
+   * A grouped item.
+   *
+   * @stability unstable
+   * @category models
+   * @since 1.0.0
+   */
+  export interface Item {
+    readonly id: string
+  }
+
+  /**
+   * A stable grouped item.
+   *
+   * @category models
+   * @since 1.0.0
+   */
+  export interface StableItem {
+    readonly id: string
+  }
+}
+
+/**
+ * Groups stable types.
+ *
+ * @stability stable
+ * @category models
+ * @since 1.0.0
+ */
+export declare namespace StableGroup {
+  /**
+   * A stable nested item.
+   *
+   * @category models
+   * @since 1.0.0
+   */
+  export interface Item {
+    readonly id: string
+  }
+}
+`
+    )
+    const model = extractJSDocsSync({
+      cwd,
+      tsconfig: "tsconfig.json",
+      include: ["src/**/*.ts"],
+      output: ".data/jsdocs.json"
+    })
+    const foo = model.files.find((file) => file.file.endsWith("src/Foo.ts"))
+    const stabilityByName = Object.fromEntries(
+      model.apis
+        .filter((api) => api.moduleName === "@effect/sample/Foo")
+        .map((api) => [api.apiFqn, api.tags.stability])
+    )
+
+    assert.deepStrictEqual(foo?.diagnostics ?? [], [])
+    assert.match(foo?.moduleJSDoc?.raw ?? "", /@stability unstable/)
+    assert.deepStrictEqual(stabilityByName, {
+      "@effect/sample/Foo.Box": "stable",
+      "@effect/sample/Foo.Box.value": "unstable",
+      "@effect/sample/Foo.Box.label": "stable",
+      "@effect/sample/Foo.Group": "unstable",
+      "@effect/sample/Foo.Group.Item": "unstable",
+      "@effect/sample/Foo.Group.StableItem": "stable",
+      "@effect/sample/Foo.StableGroup": "stable",
+      "@effect/sample/Foo.StableGroup.Item": "stable"
+    })
   })
 })

@@ -1,3 +1,4 @@
+import { assert } from "@effect/vitest"
 import {
   Cause,
   DateTime,
@@ -30,6 +31,28 @@ const FiniteFromDate = Schema.Date.pipe(Schema.decodeTo(
 ))
 
 describe("Serializers", () => {
+  for (
+    const [name, toCodec] of [
+      ["toCodecJson", Schema.toCodecJson],
+      ["toCodecStringTree", Schema.toCodecStringTree]
+    ] as const
+  ) {
+    it(`${name} preserves union order when branded members share an AST`, () => {
+      const A = Schema.Struct({ a: Schema.String })
+      const First = A.pipe(Schema.brand("First"))
+      const schema = Schema.Union([
+        First,
+        Schema.Struct({ b: Schema.String }),
+        A.pipe(Schema.brand("Last"))
+      ])
+      const codec = toCodec(schema)
+      const input = { a: "a", b: "b" }
+
+      assert.deepStrictEqual(Schema.decodeUnknownSync(codec)(input), First.make({ a: "a" }))
+      assert.deepStrictEqual(Schema.encodeUnknownSync(codec)(input), { a: "a" })
+    })
+  }
+
   describe("toCodecJson", () => {
     it("exposes the source schema", () => {
       const schema = Schema.FiniteFromString
@@ -40,6 +63,11 @@ describe("Serializers", () => {
     it("treats Json as canonical", () => {
       strictEqual(Schema.toCodecJson(Schema.Json).ast, Schema.Json.ast)
       strictEqual(Schema.toCodecJson(Schema.MutableJson).ast, Schema.MutableJson.ast)
+    })
+
+    it("is idempotent", () => {
+      const once = Schema.toCodecJson(Schema.suspend(() => Schema.Struct({ value: Schema.Number })))
+      strictEqual(Schema.toCodecJson(once).ast, once.ast)
     })
 
     it("should reorder the types in the Union based on the encoded side", async () => {
@@ -371,6 +399,21 @@ describe("Serializers", () => {
         })
 
         describe("checks", () => {
+          it("runs source checks once per direction", () => {
+            let executions = 0
+            const codec = Schema.toCodecJson(Schema.Number.check(Schema.makeFilter<number>(() => {
+              executions++
+              return undefined
+            })))
+
+            Schema.decodeUnknownSync(codec)(1)
+            strictEqual(executions, 1)
+
+            executions = 0
+            Schema.encodeUnknownSync(codec)(1)
+            strictEqual(executions, 1)
+          })
+
           it("Finite", async () => {
             const schema = Schema.Finite
             const asserts = new TestSchema.Asserts(Schema.toCodecJson(schema))
@@ -490,6 +533,26 @@ describe("Serializers", () => {
 
         const decoding = asserts.decoding()
         await decoding.succeed("Symbol(a)", Symbol.for("a"))
+        await decoding.fail("Symbol(b)", `Expected "Symbol(a)"`)
+      })
+
+      it("Symbol with a multiline registry key", async () => {
+        const symbol = Symbol.for("a\nb")
+        const asserts = new TestSchema.Asserts(Schema.toCodecJson(Schema.Symbol))
+
+        await asserts.encoding().succeed(symbol, "Symbol(a\nb)")
+        await asserts.decoding().succeed("Symbol(a\nb)", symbol)
+      })
+
+      it("local UniqueSymbol", async () => {
+        const symbol = Symbol("a")
+        const asserts = new TestSchema.Asserts(Schema.toCodecJson(Schema.UniqueSymbol(symbol)))
+
+        const encoding = asserts.encoding()
+        await encoding.fail(symbol, "cannot serialize to string, Symbol is not registered")
+
+        const decoding = asserts.decoding()
+        await decoding.fail("Symbol(a)", "Expected never")
       })
 
       it("BigInt", async () => {
@@ -1726,6 +1789,11 @@ describe("Serializers", () => {
         const serializer = Schema.toCodecStringTree(Schema.Unknown)
         strictEqual(serializer.ast, Schema.toCodecStringTree(serializer).ast)
       })
+
+      it("Suspend", () => {
+        const serializer = Schema.toCodecStringTree(Schema.suspend(() => Schema.Array(Schema.Finite)))
+        strictEqual(serializer.ast, Schema.toCodecStringTree(serializer).ast)
+      })
     })
 
     describe("schemas without encoding", () => {
@@ -2028,7 +2096,7 @@ Expected "Infinity" | "-Infinity" | "NaN"`
 
         const decoding = asserts.decoding()
         await decoding.succeed("Symbol(a)", Symbol.for("a"))
-        await decoding.fail("a", `Expected a string representing a symbol`)
+        await decoding.fail("a", `Expected "Symbol(a)"`)
       })
 
       it("BigInt", async () => {
@@ -2737,6 +2805,18 @@ Expected "Infinity" | "-Infinity" | "NaN"`
   })
 
   describe("toCodecArrayFromSingle", () => {
+    it("preserves union fallback when a singleton fails array element checks", async () => {
+      const schema = Schema.toCodecArrayFromSingle(Schema.toCodecStringTree(Schema.Union([
+        Schema.Array(Schema.String.check(Schema.isMinLength(2))),
+        Schema.String
+      ])))
+      const asserts = new TestSchema.Asserts(schema)
+
+      const decoding = asserts.decoding()
+      await decoding.succeed("a", "a")
+      await decoding.succeed("ab", ["ab"])
+    })
+
     it("accepts string and array inputs for a top-level array", async () => {
       const serializer = Schema.toCodecArrayFromSingle(Schema.toCodecStringTree(Schema.Array(Schema.Finite)))
       strictEqual(serializer.ast._tag, "Arrays")
@@ -2798,8 +2878,15 @@ Expected "Infinity" | "-Infinity" | "NaN"`
       await decoding.succeed([["1", "2"]], [[1, 2]])
     })
 
-    it("is idempotent", () => {
+    it("preserves array-from-single encoding when converting to StringTree again", () => {
       const schema = Schema.toCodecArrayFromSingle(Schema.toCodecStringTree(Schema.Array(Schema.Finite)))
+      strictEqual(Schema.toCodecStringTree(schema).ast, schema.ast)
+    })
+
+    it("is idempotent", () => {
+      const schema = Schema.toCodecArrayFromSingle(
+        Schema.toCodecStringTree(Schema.suspend(() => Schema.Array(Schema.Finite)))
+      )
       strictEqual(schema.ast, Schema.toCodecArrayFromSingle(schema).ast)
     })
   })
@@ -2813,7 +2900,7 @@ Expected "Infinity" | "-Infinity" | "NaN"`
     async function assertXmlFailure<T, E, RD>(schema: Schema.Codec<T, E, RD>, value: T, message: string) {
       const serializer = Schema.toEncoderXml(Schema.toCodecStringTree(schema))
       const r = await serializer(value).pipe(
-        Effect.mapError((err) => formatIssue(err.issue)),
+        Effect.mapError(formatIssue),
         Effect.result,
         Effect.runPromise
       )

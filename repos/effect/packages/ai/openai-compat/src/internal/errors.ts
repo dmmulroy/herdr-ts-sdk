@@ -1,19 +1,19 @@
+import * as AiError from "effect/ai/AiError"
+import type * as Response from "effect/ai/Response"
 import * as Arr from "effect/Array"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import type * as Sse from "effect/encoding/Sse"
 import { dual } from "effect/Function"
+import type * as HttpClientError from "effect/http/HttpClientError"
+import type * as HttpClientRequest from "effect/http/HttpClientRequest"
+import type * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as Number from "effect/Number"
 import * as Option from "effect/Option"
 import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as String from "effect/String"
-import * as AiError from "effect/unstable/ai/AiError"
-import type * as Response from "effect/unstable/ai/Response"
-import type * as Sse from "effect/unstable/encoding/Sse"
-import type * as HttpClientError from "effect/unstable/http/HttpClientError"
-import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import type { OpenAiErrorMetadata } from "../OpenAiError.ts"
 
 /** @internal */
@@ -207,46 +207,6 @@ export const buildHttpContext = (params: {
   body: params.body
 })
 
-const buildInvalidRequestDescription = (params: {
-  readonly status: number
-  readonly message: string | undefined
-  readonly method: string
-  readonly url: string
-  readonly errorCode: string | null
-  readonly errorType: string | null
-  readonly requestId: string | null
-  readonly body: string | undefined
-}): string => {
-  const parts: Array<string> = []
-
-  if (params.message) {
-    parts.push(params.message)
-  } else {
-    parts.push(`HTTP ${params.status}`)
-  }
-
-  parts.push(`(${params.method} ${params.url})`)
-
-  if (params.errorCode) {
-    parts.push(`[code: ${params.errorCode}]`)
-  } else if (params.errorType) {
-    parts.push(`[type: ${params.errorType}]`)
-  }
-
-  if (params.requestId) {
-    parts.push(`[requestId: ${params.requestId}]`)
-  }
-
-  if (!params.message && params.body) {
-    const truncated = params.body.length > 200
-      ? params.body.slice(0, 200) + "..."
-      : params.body
-    parts.push(`Response: ${truncated}`)
-  }
-
-  return parts.join(" ")
-}
-
 /** @internal */
 export const mapStatusCodeToReason = ({ status, headers, message, metadata, http }: {
   readonly status: number
@@ -255,7 +215,7 @@ export const mapStatusCodeToReason = ({ status, headers, message, metadata, http
   readonly metadata: OpenAiErrorMetadata
   readonly http: typeof AiError.HttpContext.Type
 }): AiError.AiErrorReason => {
-  const invalidRequestDescription = buildInvalidRequestDescription({
+  const errorDescription = AiError.buildErrorDescription({
     status,
     message,
     method: http.request.method,
@@ -269,33 +229,35 @@ export const mapStatusCodeToReason = ({ status, headers, message, metadata, http
   switch (status) {
     case 400:
       return new AiError.InvalidRequestError({
-        description: invalidRequestDescription,
-        metadata: { openai: metadata },
+        description: errorDescription,
+        metadata: { "openai-compat": metadata },
         http
       })
     case 401:
       return new AiError.AuthenticationError({
         kind: "InvalidKey",
+        description: errorDescription,
         metadata,
         http
       })
     case 403:
       return new AiError.AuthenticationError({
         kind: "InsufficientPermissions",
+        description: errorDescription,
         metadata,
         http
       })
     case 404:
       return new AiError.InvalidRequestError({
-        description: invalidRequestDescription,
-        metadata: { openai: metadata },
+        description: errorDescription,
+        metadata: { "openai-compat": metadata },
         http
       })
     case 409:
     case 422:
       return new AiError.InvalidRequestError({
-        description: invalidRequestDescription,
-        metadata: { openai: metadata },
+        description: errorDescription,
+        metadata: { "openai-compat": metadata },
         http
       })
     case 429: {
@@ -306,7 +268,7 @@ export const mapStatusCodeToReason = ({ status, headers, message, metadata, http
         metadata.errorType?.includes("exhausted")
       ) {
         return new AiError.QuotaExhaustedError({
-          metadata: { openai: metadata },
+          metadata: { "openai-compat": metadata },
           http
         })
       }
@@ -314,7 +276,7 @@ export const mapStatusCodeToReason = ({ status, headers, message, metadata, http
       return new AiError.RateLimitError({
         retryAfter,
         metadata: {
-          openai: {
+          "openai-compat": {
             ...metadata,
             ...rateLimitMetadata
           }

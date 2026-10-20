@@ -25,6 +25,13 @@ const makeCrypto = (value: bigint) =>
   })
 
 describe("Crypto", () => {
+  it("uses the module path for its type ID", () => {
+    assert.strictEqual(
+      (testCrypto as unknown as Record<string, unknown>)["~effect/Crypto"],
+      "~effect/Crypto"
+    )
+  })
+
   it("supports string literal digest algorithms", () => {
     const algorithm: Crypto.DigestAlgorithm = "SHA-256"
     assert.strictEqual(algorithm, "SHA-256")
@@ -57,6 +64,15 @@ describe("Crypto", () => {
       assert.deepStrictEqual(randomShuffle, [1, 2, 3])
     }).pipe(Effect.provideService(Crypto.Crypto, testCrypto)))
 
+  it.effect("randomBetween excludes the upper bound when the result rounds up", () =>
+    Effect.gen(function*() {
+      const value = yield* makeCrypto((1n << 53n) - 2n).randomBetween(10, 20)
+
+      assert.isAtLeast(value, 10)
+      assert.isBelow(value, 20)
+      assert.strictEqual(value, 20 - 2 ** -48)
+    }))
+
   it("maps adjacent random values to adjacent safe integers", () => {
     assert.strictEqual(makeCrypto(0n).nextIntUnsafe(), Number.MIN_SAFE_INTEGER)
     assert.strictEqual(makeCrypto(1n).nextIntUnsafe(), Number.MIN_SAFE_INTEGER + 1)
@@ -80,16 +96,56 @@ describe("Crypto", () => {
   it.effect("randomUUIDv4 formats UUID bytes from randomBytes", () =>
     Effect.gen(function*() {
       const crypto = yield* Crypto.Crypto
-      const uuid = yield* crypto.randomUUIDv4
+      const uuid = yield* crypto.randomUUIDv4()
       assert.strictEqual(uuid, "00010203-0405-4607-8809-0a0b0c0d0e0f")
+      const hex = yield* crypto.randomUUIDv4({ format: "hex" })
+      assert.strictEqual(hex, "00010203-0405-4607-8809-0a0b0c0d0e0f")
     }).pipe(Effect.provideService(Crypto.Crypto, testCrypto)))
 
   it.effect("randomUUIDv7 formats UUID bytes with the Clock timestamp", () =>
     Effect.gen(function*() {
       yield* TestClock.setTime(0x0123456789ab)
       const crypto = yield* Crypto.Crypto
-      const uuid = yield* crypto.randomUUIDv7
+      const uuid = yield* crypto.randomUUIDv7()
       assert.strictEqual(uuid, "01234567-89ab-7607-8809-0a0b0c0d0e0f")
+      const hex = yield* crypto.randomUUIDv7({ format: "hex" })
+      assert.strictEqual(hex, "01234567-89ab-7607-8809-0a0b0c0d0e0f")
+    }).pipe(Effect.provideService(Crypto.Crypto, testCrypto)))
+
+  it.effect("randomUUIDv4 returns 16 bytes with the version and variant bits set", () =>
+    Effect.gen(function*() {
+      const crypto = yield* Crypto.Crypto
+      const bytes = yield* crypto.randomUUIDv4({ format: "bytes" })
+      assert.deepStrictEqual(bytes, Uint8Array.of(0, 1, 2, 3, 4, 5, 0x46, 7, 0x88, 9, 10, 11, 12, 13, 14, 15))
+    }).pipe(Effect.provideService(Crypto.Crypto, testCrypto)))
+
+  it.effect("randomUUIDv7 returns 16 bytes containing the Clock timestamp, version and variant", () =>
+    Effect.gen(function*() {
+      yield* TestClock.setTime(0x0123456789ab)
+      const crypto = yield* Crypto.Crypto
+      const bytes = yield* crypto.randomUUIDv7({ format: "bytes" })
+      assert.deepStrictEqual(
+        bytes,
+        Uint8Array.of(0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0x76, 7, 0x88, 9, 10, 11, 12, 13, 14, 15)
+      )
+    }).pipe(Effect.provideService(Crypto.Crypto, testCrypto)))
+
+  it.effect("randomULID encodes the Clock timestamp and random bytes", () =>
+    Effect.gen(function*() {
+      yield* TestClock.setTime(0x0123456789ab)
+      const crypto = yield* Crypto.Crypto
+      const ulid = yield* crypto.randomULID
+
+      assert.strictEqual(ulid, "014D2PF2DB000G40R40M30E209")
+    }).pipe(Effect.provideService(Crypto.Crypto, testCrypto)))
+
+  it.effect("randomULID clamps an overflowing Clock timestamp", () =>
+    Effect.gen(function*() {
+      yield* TestClock.setTime(2 ** 48)
+      const crypto = yield* Crypto.Crypto
+      const ulid = yield* crypto.randomULID
+
+      assert.strictEqual(ulid, "7ZZZZZZZZZ000G40R40M30E209")
     }).pipe(Effect.provideService(Crypto.Crypto, testCrypto)))
 
   it.effect("digest delegates to the service", () =>

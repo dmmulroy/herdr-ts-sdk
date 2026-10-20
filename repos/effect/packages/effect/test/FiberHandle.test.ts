@@ -1,9 +1,39 @@
 import { assert, describe, it } from "@effect/vitest"
 import { assertFalse, assertTrue, strictEqual } from "@effect/vitest/utils"
-import { Deferred, Effect, Exit, Fiber, FiberHandle, Option, pipe, Ref } from "effect"
+import { Deferred, Effect, Exit, Fiber, FiberHandle, Option, pipe, Ref, Scope } from "effect"
 import { TestClock } from "effect/testing"
 
+const makeWorker = Effect.gen(function*() {
+  const ready = yield* Deferred.make<void>()
+  const cleanups = yield* Ref.make(0)
+  const fiber = yield* Effect.forkScoped(
+    Deferred.succeed(ready, undefined).pipe(
+      Effect.andThen(Effect.never),
+      Effect.ensuring(Ref.update(cleanups, (n) => n + 1))
+    ),
+    { startImmediately: true }
+  )
+  yield* Deferred.await(ready)
+  return { fiber, cleanups }
+})
+
 describe("FiberHandle", () => {
+  it.effect("run defers startup", () =>
+    Effect.gen(function*() {
+      const container = yield* FiberHandle.make()
+      let started = false
+      const fiber = yield* FiberHandle.run(
+        container,
+        Effect.sync(() => {
+          started = true
+        }),
+        { startImmediately: false }
+      )
+      assert.isFalse(started)
+      yield* Fiber.join(fiber)
+      assert.isTrue(started)
+    }))
+
   it.effect("interrupts the current fiber when the scope closes", () =>
     Effect.gen(function*() {
       const ref = yield* (Ref.make(0))
@@ -17,6 +47,28 @@ describe("FiberHandle", () => {
       )
 
       strictEqual(yield* (Ref.get(ref)), 1)
+    }))
+
+  it.effect("retains ownership of a replacement made by a synchronous finalizer", () =>
+    Effect.gen(function*() {
+      const scope = yield* Scope.make()
+      const handle = yield* FiberHandle.make().pipe(Scope.provide(scope))
+      const run = yield* FiberHandle.runtime(handle)()
+      const fibers: Array<Fiber.Fiber<unknown, unknown>> = []
+      yield* Effect.addFinalizer(() => Fiber.interruptAll(fibers))
+
+      const previous = run(Effect.never.pipe(Effect.ensuring(Effect.sync(() => {
+        fibers.push(run(Effect.never))
+      }))))
+      const replacement = run(Effect.never)
+      fibers.push(previous, replacement)
+      assert.strictEqual(fibers.length, 3)
+
+      yield* Scope.close(scope, Exit.void)
+
+      assert.isDefined(previous.pollUnsafe())
+      assert.isDefined(replacement.pollUnsafe())
+      assert.isDefined(fibers[0].pollUnsafe(), "fiber started by the finalizer still running after scope close")
     }))
 
   it.effect("runtime", () =>
@@ -86,6 +138,34 @@ describe("FiberHandle", () => {
       assertTrue(Exit.hasInterrupts(yield* Fiber.await(fiberC)))
       strictEqual(fiberA.pollUnsafe(), undefined)
     }))
+
+  it.effect("onlyIfMissing keeps the same registered fiber", () =>
+    Effect.gen(function*() {
+      const handle = yield* FiberHandle.make()
+      const worker = yield* makeWorker
+      FiberHandle.setUnsafe(handle, worker.fiber)
+      FiberHandle.setUnsafe(handle, worker.fiber, { onlyIfMissing: true })
+
+      strictEqual(Option.getOrUndefined(FiberHandle.getUnsafe(handle)), worker.fiber)
+      strictEqual(worker.fiber.pollUnsafe(), undefined)
+      strictEqual(yield* Ref.get(worker.cleanups), 0)
+    }))
+
+  for (const propagateInterruption of [false, true]) {
+    it.effect(`same-fiber registration preserves propagateInterruption: ${propagateInterruption}`, () =>
+      Effect.gen(function*() {
+        const handle = yield* FiberHandle.make()
+        const worker = yield* makeWorker
+        FiberHandle.setUnsafe(handle, worker.fiber, { propagateInterruption })
+        FiberHandle.setUnsafe(handle, worker.fiber, {
+          onlyIfMissing: true,
+          propagateInterruption: !propagateInterruption
+        })
+
+        yield* Fiber.interrupt(worker.fiber)
+        strictEqual(yield* Deferred.isDone(handle.deferred), propagateInterruption)
+      }))
+  }
 
   it.effect("clear does not remove a newer fiber installed while interrupting the previous one", () =>
     Effect.gen(function*() {

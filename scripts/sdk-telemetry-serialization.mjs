@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
-import { HttpBody } from "effect/unstable/http";
+import { HttpBody } from "effect/http";
 import { approvedSdkTelemetryAttribute } from "./sdk-telemetry-execution.mjs";
 
 /** Stable hashed identity for runtime names and file paths; raw text is not exported (not anonymization). @param {string} value */
 export const sdkTelemetryIdentity = (value) =>
   createHash("sha256").update(value).digest("hex").slice(0, 32);
 
-/** @typedef {import("effect/unstable/observability/OtlpResource").KeyValue} KeyValue */
+/** @typedef {import("effect/observability/OtlpResource").KeyValue} KeyValue */
 /** @typedef {{exported:number,dropped:number,attempted:number,failed:boolean,traceItems:number,logItems:number}} SdkTelemetryCounters */
 const isSdkTelemetryString = Schema.is(Schema.String);
 const sdkMandatoryAttributes = new Set([
@@ -42,7 +42,7 @@ const sanitizeSdkAttributes = (attributes, tokens) =>
 /** Full outgoing OTLP reconstruction: no arbitrary bodies, resource fields, scope fields, causes or names cross HTTP.
  * @param {Set<string>} tokens Trusted literals read from this checkout's implementation, not runtime input.
  * @param {SdkTelemetryCounters} counters
- * @returns {import("effect/unstable/observability/OtlpSerialization").OtlpSerialization["Service"]}
+ * @returns {import("effect/observability/OtlpSerialization").OtlpSerialization["Service"]}
  */
 export const sdkTelemetrySerialization = (tokens, counters) => ({
   traces: (data) => {

@@ -7,11 +7,13 @@
  * operating system, while preserving useful details such as the module, method,
  * path, descriptor, description, and original cause when available.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 import * as Data from "./Data.ts"
+import * as Predicate from "./Predicate.ts"
 
-const TypeId = "~effect/platform/PlatformError"
+const TypeId = "~effect/PlatformError"
 
 /**
  * Error data for an invalid argument passed to a platform API.
@@ -30,6 +32,7 @@ const TypeId = "~effect/platform/PlatformError"
  * @see {@link SystemError} for failures reported by the host platform or operating system
  * @see {@link PlatformError} for the wrapper used by most platform APIs
  *
+ * @stability unstable
  * @category errors
  * @since 4.0.0
  */
@@ -69,6 +72,7 @@ export class BadArgument extends Data.TaggedError("BadArgument")<{
  * @see {@link SystemError} for the error data that carries this tag on its `_tag` field
  * @see {@link systemError} for creating a `PlatformError` from a system failure with one of these tags
  *
+ * @stability unstable
  * @category errors
  * @since 4.0.0
  */
@@ -103,6 +107,7 @@ export type SystemErrorTag =
  * @see {@link BadArgument} for platform API failures caused by rejected caller input before an operation runs
  * @see {@link SystemErrorTag} for the normalized tag values stored in `_tag`
  *
+ * @stability unstable
  * @category errors
  * @since 4.0.0
  */
@@ -151,6 +156,7 @@ export class SystemError extends Data.Error<{
  * @see {@link badArgument} for creating this wrapper from rejected caller input
  * @see {@link systemError} for creating this wrapper from a host or operating-system failure
  *
+ * @stability unstable
  * @category errors
  * @since 4.0.0
  */
@@ -182,6 +188,34 @@ export class PlatformError extends Data.TaggedError("PlatformError")<{
 }
 
 /**
+ * Returns `true` if a value is a `PlatformError`.
+ *
+ * **When to use**
+ *
+ * Use to narrow a caught defect, or an error channel typed more loosely than
+ * the platform APIs, to `PlatformError`.
+ *
+ * **Example** (Checking a caught value)
+ *
+ * ```ts import.meta.vitest
+ * import { PlatformError } from "effect"
+ *
+ * const error = PlatformError.badArgument({
+ *   module: "FileSystem",
+ *   method: "readFile"
+ * })
+ *
+ * PlatformError.isPlatformError(error) // => true
+ * PlatformError.isPlatformError(new Error("boom")) // => false
+ * ```
+ *
+ * @stability unstable
+ * @category guards
+ * @since 4.0.0
+ */
+export const isPlatformError = (u: unknown): u is PlatformError => Predicate.hasProperty(u, TypeId)
+
+/**
  * Creates a `PlatformError` whose reason is a `SystemError`.
  *
  * **When to use**
@@ -189,6 +223,7 @@ export class PlatformError extends Data.TaggedError("PlatformError")<{
  * Use to adapt an operating-system or platform failure into the normalized
  * platform error model.
  *
+ * @stability unstable
  * @category constructors
  * @since 4.0.0
  */
@@ -210,6 +245,7 @@ export const systemError = (options: {
  * Use to report a platform API rejecting caller input before performing the
  * underlying operation.
  *
+ * @stability unstable
  * @category constructors
  * @since 4.0.0
  */

@@ -1,18 +1,18 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Queue, Redacted, Stream } from "effect"
-import * as EventJournal from "effect/unstable/eventlog/EventJournal"
-import * as EventLog from "effect/unstable/eventlog/EventLog"
-import * as EventLogEncryption from "effect/unstable/eventlog/EventLogEncryption"
-import * as EventLogMessage from "effect/unstable/eventlog/EventLogMessage"
-import type { StoreId } from "effect/unstable/eventlog/EventLogMessage"
-import * as EventLogServer from "effect/unstable/eventlog/EventLogServerEncrypted"
-import * as EventLogSessionAuth from "effect/unstable/eventlog/EventLogSessionAuth"
-import { makeGetIdentityRootSecretMaterial } from "effect/unstable/eventlog/internal/identityRootSecretDerivation"
-import * as SqlEventLogServer from "effect/unstable/eventlog/SqlEventLogServerEncrypted"
-import { Reactivity } from "effect/unstable/reactivity"
-import * as RpcTest from "effect/unstable/rpc/RpcTest"
-import * as SqlClient from "effect/unstable/sql/SqlClient"
+import * as EventJournal from "effect/eventlog/EventJournal"
+import * as EventLog from "effect/eventlog/EventLog"
+import * as EventLogEncryption from "effect/eventlog/EventLogEncryption"
+import * as EventLogMessage from "effect/eventlog/EventLogMessage"
+import type { StoreId } from "effect/eventlog/EventLogMessage"
+import * as EventLogServer from "effect/eventlog/EventLogServerEncrypted"
+import * as EventLogSessionAuth from "effect/eventlog/EventLogSessionAuth"
+import { makeGetIdentityRootSecretMaterial } from "effect/eventlog/internal/identityRootSecretDerivation"
+import * as SqlEventLogServer from "effect/eventlog/SqlEventLogServerEncrypted"
+import { Reactivity } from "effect/reactivity"
+import * as RpcTest from "effect/rpc/RpcTest"
+import * as SqlClient from "effect/sql/SqlClient"
 
 const storeIdA = "store-a" as StoreId
 const storeIdB = "store-b" as StoreId
@@ -32,10 +32,10 @@ const persistEntries = (
 ) =>
   Effect.gen(function*() {
     const encrypted = yield* encryption.encrypt(identity, entries)
-    return encrypted.encryptedEntries.map((encryptedEntry, index) =>
+    return encrypted.map(({ encryptedEntry, iv }, index) =>
       new EventLogServer.PersistedEntry({
         entryId: entries[index].id,
-        iv: encrypted.iv,
+        iv,
         encryptedEntry
       })
     )
@@ -50,10 +50,10 @@ const encodeWrite = Effect.fnUntraced(function*(
   return yield* new EventLogMessage.WriteEntries({
     publicKey: identity.publicKey,
     storeId: storeIdA,
-    iv: encrypted.iv,
     encryptedEntries: [{
       entryId: entry.id,
-      encryptedEntry: encrypted.encryptedEntries[0]
+      iv: encrypted[0].iv,
+      encryptedEntry: encrypted[0].encryptedEntry
     }]
   }).encoded
 })

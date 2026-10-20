@@ -15,13 +15,8 @@ import {
   Stream,
   Tracer,
 } from "effect";
-import { FetchHttpClient, HttpClient } from "effect/unstable/http";
-import {
-  OtlpExporter,
-  OtlpLogger,
-  OtlpSerialization,
-  OtlpTracer,
-} from "effect/unstable/observability";
+import { FetchHttpClient, HttpClient } from "effect/http";
+import { OtlpExporter, OtlpLogger, OtlpSerialization, OtlpTracer } from "effect/observability";
 import {
   approvedSdkTelemetryAttribute,
   sdkTelemetryAttributeKeys,
@@ -98,7 +93,7 @@ const partialResponse = Schema.Struct({
 });
 const decodePartialResponse = Schema.decodeEffect(Schema.fromJsonString(partialResponse));
 /** Bound collector acknowledgement bytes before JSON parsing; Fetch's text getter ignores MaxBodySize.
- * @param {import("effect/unstable/http/HttpClientResponse").HttpClientResponse} response
+ * @param {import("effect/http/HttpClientResponse").HttpClientResponse} response
  */
 const sdkTelemetryAcknowledgement = (response) =>
   Effect.gen(function* () {
@@ -330,8 +325,34 @@ export const traceSdkExecution = (input, effect) =>
                 links = 0;
               /** @type {Tracer.Span} */
               const bounded = {
-                ...span,
                 _tag: "Span",
+                get name() {
+                  return span.name;
+                },
+                get parent() {
+                  return span.parent;
+                },
+                get annotations() {
+                  return span.annotations;
+                },
+                get links() {
+                  return span.links;
+                },
+                get sampled() {
+                  return span.sampled;
+                },
+                get kind() {
+                  return span.kind;
+                },
+                get traceId() {
+                  return span.traceId;
+                },
+                get spanId() {
+                  return span.spanId;
+                },
+                get attributes() {
+                  return span.attributes;
+                },
                 get status() {
                   return span.status;
                 },

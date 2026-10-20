@@ -108,7 +108,7 @@ describe("Union", () => {
   })
 
   describe("Tagged unions", () => {
-    describe("asTaggedUnion", () => {
+    describe("toTaggedUnion", () => {
       it("should not be callable if the tag field is invalid", () => {
         const original = Schema.Union([
           Schema.TaggedStruct("A", { a: Schema.String }),
@@ -121,6 +121,7 @@ describe("Union", () => {
 
         const schema = original.pipe(Schema.toTaggedUnion("_tag"))
 
+        expect(schema.tag).type.toBe<"_tag">()
         expect(schema.discriminants).type.toBe<readonly ["A", "C", "B"]>()
 
         expect(Schema.revealCodec(schema)).type.toBe<
@@ -146,12 +147,52 @@ describe("Union", () => {
         expect(C).type.toBe<Schema.TaggedStruct<"C", { readonly c: Schema.Boolean }>>()
       })
 
+      it("should reject duplicates only on the selected tag", () => {
+        const original = Schema.Union([
+          Schema.Struct({ _tag: Schema.tag("A"), kind: Schema.tag("shared") }),
+          Schema.Struct({ _tag: Schema.tag("B"), kind: Schema.tag("shared") })
+        ])
+
+        expect(original.pipe).type.not.toBeCallableWith(Schema.toTaggedUnion("kind"))
+
+        const schema = original.pipe(Schema.toTaggedUnion("_tag"))
+        expect(schema.discriminants).type.toBe<readonly ["A", "B"]>()
+      })
+
+      it("should reject duplicate nested discriminants", () => {
+        const original = Schema.Union([
+          Schema.Struct({ event: Schema.Literal("A") }),
+          Schema.Union([
+            Schema.Struct({ event: Schema.Literal("B") }),
+            Schema.Struct({ event: Schema.Literal("A") })
+          ])
+        ])
+
+        expect(original.pipe).type.not.toBeCallableWith(Schema.toTaggedUnion("event"))
+      })
+
+      it("should reject numeric and string discriminants with the same property key", () => {
+        const original = Schema.Union([
+          Schema.Struct({ event: Schema.Literal(1) }),
+          Schema.Struct({ event: Schema.Literal("1") })
+        ])
+        expect(Schema.toTaggedUnion("event")).type.not.toBeCallableWith(original)
+
+        const schema = Schema.Union([
+          Schema.Struct({ event: Schema.Literal(1) }),
+          Schema.Struct({ event: Schema.Literal("2") })
+        ]).pipe(Schema.toTaggedUnion("event"))
+        expect(schema.discriminants).type.toBe<readonly [1, "2"]>()
+      })
+
       it("isAnyOf should narrow custom tags", () => {
         const schema = Schema.Union([
           Schema.Struct({ kind: Schema.tag("a"), a: Schema.Number }),
           Schema.Struct({ kind: Schema.tag("b"), b: Schema.String }),
           Schema.Struct({ kind: Schema.tag("c"), c: Schema.Boolean })
         ]).pipe(Schema.toTaggedUnion("kind"))
+
+        expect(schema.tag).type.toBe<"kind">()
 
         const value = hole<Schema.Schema.Type<typeof schema>>()
 
@@ -202,6 +243,61 @@ describe("Union", () => {
       })
     })
 
+    describe("matchOrElse", () => {
+      it("should preserve toTaggedUnion branch outputs and narrow the fallback", () => {
+        const schema = Schema.Union([
+          Schema.TaggedStruct("A", { a: Schema.String }),
+          Schema.TaggedStruct("B", { b: Schema.Number }),
+          Schema.TaggedStruct("C", { c: Schema.Boolean })
+        ]).pipe(Schema.toTaggedUnion("_tag"))
+        const value = hole<Schema.Schema.Type<typeof schema>>()
+        const cases: {
+          readonly A?: (value: { readonly _tag: "A"; readonly a: string }) => Effect.Effect<string>
+        } = {
+          A: (value) => Effect.succeed(value.a)
+        }
+
+        const result = schema.matchOrElse(value, cases, (value) => {
+          expect(value).type.toBe<
+            | { readonly _tag: "B"; readonly b: number }
+            | { readonly _tag: "C"; readonly c: boolean }
+          >()
+          return Effect.fail(value._tag)
+        })
+
+        expect(result).type.toBe<Effect.Effect<string, "B" | "C">>()
+      })
+
+      it("should type partial cases with a shared output", () => {
+        const schema = Schema.TaggedUnion({
+          A: { a: Schema.String },
+          B: { b: Schema.Number },
+          C: { c: Schema.Boolean }
+        })
+        const value = hole<Schema.Schema.Type<typeof schema>>()
+
+        const result = schema.matchOrElse<string>(value, {
+          A: (value) => {
+            expect(value).type.toBe<{ readonly _tag: "A"; readonly a: string }>()
+            return value.a
+          }
+        }, (value) => {
+          expect(value).type.toBe<
+            | { readonly _tag: "A"; readonly a: string }
+            | { readonly _tag: "B"; readonly b: number }
+            | { readonly _tag: "C"; readonly c: boolean }
+          >()
+          return value._tag
+        })
+
+        expect(result).type.toBe<string>()
+        expect(schema.matchOrElse<string>({ A: () => "A" }, (value) => value._tag)).type.toBe<
+          (value: Schema.Schema.Type<typeof schema>) => string
+        >()
+        expect(schema.matchOrElse).type.not.toBeCallableWith({ D: () => "D" }, () => "fallback")
+      })
+    })
+
     describe("TaggedUnion", () => {
       it("should depends on the order of the cases", () => {
         const schema = Schema.TaggedUnion({
@@ -209,6 +305,8 @@ describe("Union", () => {
           C: { c: Schema.Boolean },
           B: { b: Schema.FiniteFromString }
         }).annotate({})
+
+        expect(schema.tag).type.toBe<"_tag">()
 
         expect(Schema.revealCodec(schema)).type.toBe<
           Schema.Codec<
