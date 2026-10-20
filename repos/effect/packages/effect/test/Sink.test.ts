@@ -13,6 +13,13 @@ import { TestClock } from "effect/testing"
 
 describe("Sink", () => {
   describe("constructors", () => {
+    it.effect("make uses the pipeline success value as the sink result", () =>
+      Effect.gen(function*() {
+        const sink = Sink.make<number>()(Stream.runSum)
+        const exit = yield* Effect.exit(Stream.run(Stream.make(1, 2, 3), sink))
+        assertExitSuccess(exit, 6)
+      }))
+
     it.effect("fromWritableStream - aborts instead of closing on upstream failure", () =>
       Effect.gen(function*() {
         const error = new Error("upstream failed")
@@ -168,7 +175,46 @@ describe("Sink", () => {
       }))
   })
 
+  describe("foldUntil", () => {
+    it.effect("normalizes the maximum element count", () =>
+      Effect.gen(function*() {
+        const results = yield* Effect.forEach([Number.NaN, -1, 0, 0.5, 1.9, 2.9], (max) =>
+          Stream.make(1, 2, 3).pipe(
+            Stream.run(Sink.foldUntil(() => 0, max, (count) => Effect.succeed(count + 1)))
+          ))
+        deepStrictEqual(results, [0, 0, 0, 0, 1, 2])
+      }))
+
+    it.effect("zero normalized counts do not evaluate the upstream", () =>
+      Effect.gen(function*() {
+        let initializations = 0
+        const sink = Sink.foldUntil(
+          () => {
+            initializations++
+            return 42
+          },
+          Number.NaN,
+          (state: number) => Effect.succeed(state + 1)
+        )
+
+        strictEqual(initializations, 0)
+        const result = yield* Stream.fromEffect(Effect.die("upstream evaluated")).pipe(Stream.run(sink))
+        strictEqual(result, 42)
+        strictEqual(initializations, 1)
+      }))
+  })
+
   describe("take", () => {
+    it.effect("normalizes the element count", () =>
+      Effect.gen(function*() {
+        const results = yield* Effect.all([
+          Stream.make(1, 2, 3).pipe(Stream.run(Sink.take(Number.NaN))),
+          Stream.make(1, 2, 3).pipe(Stream.run(Sink.take(-1))),
+          Stream.make(1, 2, 3).pipe(Stream.run(Sink.take(1.9)))
+        ])
+        deepStrictEqual(results, [[], [], [1]])
+      }))
+
     it.effect("respects the given limit", () =>
       Effect.gen(function*() {
         const stream = Stream.make(1, 2, 3, 4).pipe(
@@ -257,6 +303,40 @@ describe("Sink", () => {
       }))
   })
 
+  describe("takeUntil", () => {
+    it.effect("takeUntil preserves leftovers and stops at the match", () =>
+      Effect.gen(function*() {
+        const result = yield* Stream.make(1, 2, 3, 4).pipe(
+          Stream.concat(Stream.fail("pulled past the match")),
+          Stream.transduce(Sink.takeUntil((n) => n % 2 === 0)),
+          Stream.take(2),
+          Stream.runCollect
+        )
+        deepStrictEqual(result, [[1, 2], [3, 4]])
+      }))
+
+    it.effect("takeUntilEffect preserves leftovers and stops at the match", () =>
+      Effect.gen(function*() {
+        for (const chunkSize of [1, 4]) {
+          const inputs: Array<number> = []
+          const result = yield* Stream.make(1, 2, 3, 4).pipe(
+            Stream.rechunk(chunkSize),
+            Stream.concat(Stream.fail("pulled past the match")),
+            Stream.transduce(Sink.takeUntilEffect((n) =>
+              Effect.sync(() => {
+                inputs.push(n)
+                return n % 2 === 0
+              })
+            )),
+            Stream.take(2),
+            Stream.runCollect
+          )
+          deepStrictEqual(result, [[1, 2], [3, 4]])
+          deepStrictEqual(inputs, [1, 2, 3, 4])
+        }
+      }))
+  })
+
   describe("withDuration", () => {
     it.effect("uses monotonic time when wall time moves backward", () =>
       Effect.gen(function*() {
@@ -275,6 +355,16 @@ describe("Sink", () => {
   })
 
   describe("flatMap", () => {
+    it.effect("preserves leftovers when the next sink consumes no input", () =>
+      Effect.gen(function*() {
+        const sink = Sink.take<number>(1).pipe(
+          Sink.flatMap(() => Sink.take<number>(0)),
+          Sink.flatMap(() => Sink.collect<number>())
+        )
+        const result = yield* Stream.fromArrays([1, 2, 3], [4, 5]).pipe(Stream.run(sink))
+        deepStrictEqual(result, [2, 3, 4, 5], "pending leftovers should be preserved")
+      }))
+
     it.effect("flatMap - empty input", () =>
       Effect.gen(function*() {
         const sink = pipe(Sink.head<number>(), Sink.flatMap(Sink.succeed))

@@ -5,13 +5,14 @@
  * Platform packages provide concrete layers, while this module defines the
  * operations for reading, writing, inspecting, streaming, and watching files.
  * Operations return `Effect`, `Stream`, or `Sink` values and fail with
- * `PlatformError`. The module also includes file handles, size helpers, open
- * flags, watch events, and the watch backend service.
+ * `PlatformError`. The module also includes file handles, open flags, watch
+ * events, and the watch backend service.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 import * as Arr from "./Array.ts"
-import type * as Brand from "./Brand.ts"
+import * as ByteSize from "./ByteSize.ts"
 import * as Cause from "./Cause.ts"
 import * as Context from "./Context.ts"
 import * as Effect from "./Effect.ts"
@@ -25,7 +26,7 @@ import type { Scope } from "./Scope.ts"
 import * as Sink from "./Sink.ts"
 import * as Stream from "./Stream.ts"
 
-const TypeId = "~effect/platform/FileSystem"
+const TypeId = "~effect/FileSystem"
 
 /**
  * Core interface for file system operations in Effect.
@@ -39,12 +40,12 @@ const TypeId = "~effect/platform/FileSystem"
  * **Example** (Accessing file system operations)
  *
  * ```ts import.meta.vitest
- * import { Effect, FileSystem } from "effect"
+ * import { ByteSize, Effect, FileSystem } from "effect"
  *
  * const fileSystem = FileSystem.makeNoop({
  *   exists: () => Effect.succeed(true),
  *   makeDirectory: () => Effect.void,
- *   stat: () => Effect.succeed({ size: FileSystem.Size(22) } as FileSystem.File.Info),
+ *   stat: () => Effect.succeed({ size: ByteSize.bytes(22) } as FileSystem.File.Info),
  *   readFileString: () => Effect.succeed("{\"env\": \"development\"}")
  * })
  *
@@ -68,10 +69,11 @@ const TypeId = "~effect/platform/FileSystem"
  * })
  *
  * const result = Effect.runSync(Effect.provideService(program, FileSystem.FileSystem, fileSystem))
- * result.size // => 22n
+ * ByteSize.toBigInt(result.size) // => 22n
  * result.content // => "{\"env\": \"development\"}"
  * ```
  *
+ * @stability unstable
  * @category services
  * @since 4.0.0
  */
@@ -218,12 +220,17 @@ export interface FileSystem {
    * **Details**
    *
    * The file handle will be automatically closed when the scope is closed.
+   *
+   * `noFollow` rejects symlinks at the final path component, not in parent
+   * directories. Node and Bun support it on POSIX; unsupported platforms,
+   * including Windows and Deno, fail with `BadArgument`.
    */
   readonly open: (
     path: string,
     options?: {
       readonly flag?: OpenFlag | undefined
       readonly mode?: number | undefined
+      readonly noFollow?: boolean | undefined
     }
   ) => Effect.Effect<File, PlatformError, Scope>
   /**
@@ -299,7 +306,7 @@ export interface FileSystem {
     }
   ) => Sink.Sink<void, Uint8Array, never, PlatformError>
   /**
-   * Get information about a file at `path`.
+   * Get information about a file at `path`. See `File.Info` for metadata limits.
    */
   readonly stat: (
     path: string
@@ -321,9 +328,9 @@ export interface FileSystem {
   readonly stream: (
     path: string,
     options?: {
-      readonly bytesToRead?: SizeInput | undefined
-      readonly chunkSize?: SizeInput | undefined
-      readonly offset?: SizeInput | undefined
+      readonly bytesToRead?: ByteSize.Input | undefined
+      readonly chunkSize?: number | undefined
+      readonly offset?: ByteSize.Input | undefined
     }
   ) => Stream.Stream<Uint8Array, PlatformError>
   /**
@@ -339,7 +346,7 @@ export interface FileSystem {
    */
   readonly truncate: (
     path: string,
-    length?: SizeInput
+    length?: number
   ) => Effect.Effect<void, PlatformError>
   /**
    * Change the file system timestamps of the file at `path`.
@@ -384,199 +391,6 @@ export interface FileSystem {
 }
 
 /**
- * Represents a file size in bytes using a branded bigint.
- *
- * **Details**
- *
- * This type ensures type safety when working with file sizes, preventing
- * accidental mixing of regular numbers with size values. The underlying
- * bigint allows for handling very large file sizes beyond JavaScript's
- * number precision limits.
- *
- * **Example** (Creating branded file sizes)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * FileSystem.Size(1024) // => 1024n
- * FileSystem.Size(BigInt("9007199254740992")) // => 9007199254740992n
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export type Size = Brand.Branded<bigint, "Size">
-
-/**
- * Input type for size parameters that accepts multiple numeric types.
- *
- * **Details**
- *
- * This union type allows file system operations to accept size values in
- * different formats for convenience, which are then normalized to the
- * branded `Size` type internally.
- *
- * **Example** (Using size inputs)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * const inputs: ReadonlyArray<FileSystem.SizeInput> = [
- *   1024,
- *   2048n,
- *   FileSystem.Size(4096)
- * ]
- * inputs.map(FileSystem.Size) // => [1024n, 2048n, 4096n]
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export type SizeInput = bigint | number | Size
-
-/**
- * Creates a `Size` from various numeric input types.
- *
- * **Details**
- *
- * Converts numbers, bigints, or existing Size values into a properly
- * branded Size type. This function handles the conversion and ensures
- * type safety for file size operations.
- *
- * **Example** (Converting size inputs)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * // From number
- * const size1 = FileSystem.Size(1024)
- * typeof size1 // => "bigint"
- *
- * // From bigint
- * const size2 = FileSystem.Size(BigInt(2048))
- *
- * // From existing Size (identity)
- * const size3 = FileSystem.Size(size1)
- * const sizes = [size2, size3] // => [2048n, 1024n]
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export const Size = (bytes: SizeInput): Size => typeof bytes === "bigint" ? bytes as Size : BigInt(bytes) as Size
-
-/**
- * Creates a `Size` representing kilobytes (1024 bytes).
- *
- * **Details**
- *
- * Converts a number of kilobytes to the equivalent size in bytes.
- * Uses binary kilobytes (1024 bytes) rather than decimal (1000 bytes).
- *
- * **Example** (Creating kibibyte sizes)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * FileSystem.KiB(64) // => 65536n
- * FileSystem.KiB(100) // => 102400n
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export const KiB = (n: number): Size => Size(n * 1024)
-
-/**
- * Creates a `Size` representing mebibytes (1024² bytes).
- *
- * **Details**
- *
- * Converts a number of mebibytes to the equivalent size in bytes.
- * Uses binary mebibytes (1,048,576 bytes) rather than decimal megabytes.
- *
- * **Example** (Creating mebibyte sizes)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * FileSystem.MiB(10) // => 10485760n
- * FileSystem.MiB(100) // => 104857600n
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export const MiB = (n: number): Size => Size(n * 1024 * 1024)
-
-/**
- * Creates a `Size` representing gibibytes (1024³ bytes).
- *
- * **Details**
- *
- * Converts a number of gibibytes to the equivalent size in bytes.
- * Uses binary gibibytes (1,073,741,824 bytes) rather than decimal gigabytes.
- *
- * **Example** (Creating gibibyte sizes)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * FileSystem.GiB(1) // => 1073741824n
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export const GiB = (n: number): Size => Size(n * 1024 * 1024 * 1024)
-
-/**
- * Creates a `Size` representing tebibytes (1024⁴ bytes).
- *
- * **Details**
- *
- * Converts a number of tebibytes to the equivalent size in bytes.
- * Uses binary tebibytes (1,099,511,627,776 bytes) rather than decimal terabytes.
- *
- * **Example** (Creating tebibyte sizes)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * FileSystem.TiB(1) // => 1099511627776n
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export const TiB = (n: number): Size => Size(n * 1024 * 1024 * 1024 * 1024)
-
-const bigint1024 = BigInt(1024)
-const bigintPiB = bigint1024 * bigint1024 * bigint1024 * bigint1024 * bigint1024
-
-/**
- * Creates a `Size` representing pebibytes (1024⁵ bytes).
- *
- * **Details**
- *
- * Converts a number of pebibytes to the equivalent size in bytes.
- * Uses binary pebibytes (1,125,899,906,842,624 bytes) rather than decimal petabytes.
- * This function uses BigInt arithmetic to handle the very large numbers involved.
- *
- * **Example** (Creating pebibyte sizes)
- *
- * ```ts import.meta.vitest
- * import { FileSystem } from "effect"
- *
- * FileSystem.PiB(2) // => 2251799813685248n
- * ```
- *
- * @category sizes
- * @since 4.0.0
- */
-export const PiB = (n: number): Size => Size(BigInt(n) * bigintPiB)
-
-/**
  * File open flags that determine how a file is opened and what operations are allowed.
  *
  * **Details**
@@ -604,6 +418,7 @@ export const PiB = (n: number): Size => Size(BigInt(n) * bigintPiB)
  * flags // => ["r", "w", "a", "r+"]
  * ```
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
@@ -657,10 +472,11 @@ export type OpenFlag =
  * Effect.runSync(withCustomFs) // => "contents"
  * ```
  *
+ * @stability unstable
  * @category services
  * @since 4.0.0
  */
-export const FileSystem: Context.Service<FileSystem, FileSystem> = Context.Service("effect/platform/FileSystem")
+export const FileSystem: Context.Service<FileSystem, FileSystem> = Context.Service("effect/FileSystem")
 
 /**
  * Creates a FileSystem implementation from a partial implementation.
@@ -680,6 +496,7 @@ export const FileSystem: Context.Service<FileSystem, FileSystem> = Context.Servi
  * @see {@link makeNoop} for a testing stub that accepts method overrides without requiring a complete implementation
  * @see {@link layerNoop} for providing a no-op `FileSystem` as a `Layer` in tests
  *
+ * @stability unstable
  * @category constructors
  * @since 4.0.0
  */
@@ -712,12 +529,16 @@ export const make = (
         })),
     stream: Effect.fnUntraced(function*(path, options) {
       const file = yield* impl.open(path, { flag: "r" })
-      if (options?.offset) {
-        yield* file.seek(options.offset, "start")
+      const offset = options?.offset === undefined ? undefined : ByteSize.fromInputUnsafe(options.offset)
+      if (offset) {
+        yield* file.seek(offset, "start")
       }
-      const bytesToRead = options?.bytesToRead !== undefined ? Size(options.bytesToRead) : undefined
+      const bytesToRead = options?.bytesToRead === undefined
+        ? undefined
+        : ByteSize.fromInputUnsafe(options.bytesToRead)
       let totalBytesRead = BigInt(0)
-      const chunkSize = Size(options?.chunkSize ?? 64 * 1024)
+      // Validate chunk sizes even for zero-byte reads.
+      const chunkSize = Number(BigInt(options?.chunkSize ?? 64 * 1024))
       const readChunk = file.readAlloc(chunkSize)
       return Stream.fromPull(Effect.succeed(
         Effect.flatMap(
@@ -726,7 +547,7 @@ export const make = (
               return Cause.done()
             }
             return bytesToRead !== undefined && (bytesToRead - totalBytesRead) < chunkSize
-              ? file.readAlloc(bytesToRead - totalBytesRead)
+              ? file.readAlloc(Number(bytesToRead - totalBytesRead))
               : readChunk
           }),
           Option.match({
@@ -741,7 +562,7 @@ export const make = (
     }, Stream.unwrap),
     sink: (path, options) =>
       pipe(
-        impl.open(path, { flag: "w", ...options }),
+        impl.open(path, { ...options, flag: options?.flag ?? "w" }),
         Effect.map((file) => Sink.forEach((_: Uint8Array) => file.writeAll(_))),
         Sink.unwrap
       ),
@@ -819,6 +640,7 @@ const notFound = (method: string, path: string) =>
  * Effect.runSync(testProgram) // => "{\"test\": true}"
  * ```
  *
+ * @stability unstable
  * @category constructors
  * @since 4.0.0
  */
@@ -948,6 +770,7 @@ export const makeNoop = (fileSystem: Partial<FileSystem>): FileSystem =>
  * Effect.runSync(testProgram) // => "mocked content"
  * ```
  *
+ * @stability unstable
  * @category layers
  * @since 4.0.0
  */
@@ -966,10 +789,11 @@ export const layerNoop = (fileSystem: Partial<FileSystem>): Layer.Layer<FileSyst
  * @see {@link File} for the open file handle shape that carries this marker
  * @see {@link isFile} for the public guard that checks this marker
  *
+ * @stability unstable
  * @category type IDs
  * @since 4.0.0
  */
-export const FileTypeId = "~effect/platform/FileSystem/File"
+export const FileTypeId = "~effect/FileSystem/File"
 
 /**
  * Returns `true` if a value is a `File` handle by checking for the
@@ -988,6 +812,7 @@ export const FileTypeId = "~effect/platform/FileSystem/File"
  * @see {@link File} for the file-handle interface narrowed by this guard
  * @see {@link FileTypeId} for the runtime marker checked by this guard
  *
+ * @stability unstable
  * @category guards
  * @since 4.0.0
  */
@@ -1002,23 +827,32 @@ export const isFile = (u: unknown): u is File => hasProperty(u, FileTypeId)
  * and retrieving file information. File handles are automatically managed
  * within scoped operations to ensure proper cleanup.
  *
+ * Each handle tracks its own cursor, which can differ from the POSIX file
+ * offset. In append mode, writes go to the end of the file without moving the
+ * cursor. Outside append mode, `truncate` clamps a cursor past the new length
+ * to that length.
+ *
+ * Positional reads leave the cursor unchanged and may run concurrently on
+ * one handle. Cursor operations (`seek`, reads without a position, and writes)
+ * must not run concurrently with each other.
+ *
  * **Example** (Working with file handles)
  *
  * ```ts import.meta.vitest
- * import { Effect, FileSystem, Option } from "effect"
+ * import { ByteSize, Effect, FileSystem, Option } from "effect"
  *
  * const file: FileSystem.File = {
  *   [FileSystem.FileTypeId]: FileSystem.FileTypeId,
- *   stat: Effect.succeed({ size: FileSystem.Size(5) } as FileSystem.File.Info),
- *   seek: () => Effect.succeed(FileSystem.Size(0)),
+ *   stat: Effect.succeed({ size: ByteSize.bytes(5) } as FileSystem.File.Info),
+ *   seek: () => Effect.succeed(BigInt(0)),
  *   sync: Effect.void,
  *   read: (buffer) => Effect.sync(() => {
  *     buffer.set([1, 2, 3, 4, 5])
- *     return FileSystem.Size(5)
+ *     return 5
  *   }),
  *   readAlloc: () => Effect.succeed(Option.none()),
  *   truncate: () => Effect.void,
- *   write: (buffer) => Effect.succeed(FileSystem.Size(buffer.length)),
+ *   write: (buffer) => Effect.succeed(buffer.length),
  *   writeAll: () => Effect.void
  * }
  *
@@ -1031,21 +865,43 @@ export const isFile = (u: unknown): u is File => hasProperty(u, FileTypeId)
  *   return { size: stats.size, bytesRead, buffer: Array.from(buffer) }
  * })
  *
- * Effect.runSync(program) // => { size: 5n, bytesRead: 5n, buffer: [1, 2, 3, 4, 5] }
+ * const result = Effect.runSync(program)
+ * ByteSize.toBigInt(result.size) // => 5n
+ * result.bytesRead // => 5
+ * result.buffer // => [1, 2, 3, 4, 5]
  * ```
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
 export interface File {
   readonly [FileTypeId]: typeof FileTypeId
+  /**
+   * Get information about the open file. See `File.Info` for metadata limits.
+   */
   readonly stat: Effect.Effect<File.Info, PlatformError>
-  readonly seek: (offset: SizeInput, from: SeekMode) => Effect.Effect<Size>
+  /**
+   * Seeks before the start fail with `BadArgument` and leave the cursor unchanged.
+   */
+  readonly seek: (offset: bigint, from: SeekMode) => Effect.Effect<bigint, PlatformError>
   readonly sync: Effect.Effect<void, PlatformError>
-  readonly read: (buffer: Uint8Array) => Effect.Effect<Size, PlatformError>
-  readonly readAlloc: (size: SizeInput) => Effect.Effect<Option.Option<Uint8Array>, PlatformError>
-  readonly truncate: (length?: SizeInput) => Effect.Effect<void, PlatformError>
-  readonly write: (buffer: Uint8Array) => Effect.Effect<Size, PlatformError>
+  /**
+   * Reads into `buffer`, returning the byte count or `0` at EOF. Advances the
+   * cursor unless `options.position` is set (see `File.ReadOptions`).
+   */
+  readonly read: (buffer: Uint8Array, options?: File.ReadOptions) => Effect.Effect<number, PlatformError>
+  /**
+   * Reads up to `size` bytes into a new buffer, returning `Option.none()` at
+   * EOF. Advances the cursor unless `options.position` is set (see
+   * `File.ReadOptions`).
+   */
+  readonly readAlloc: (
+    size: number,
+    options?: File.ReadOptions
+  ) => Effect.Effect<Option.Option<Uint8Array>, PlatformError>
+  readonly truncate: (length?: number) => Effect.Effect<void, PlatformError>
+  readonly write: (buffer: Uint8Array) => Effect.Effect<number, PlatformError>
   readonly writeAll: (buffer: Uint8Array) => Effect.Effect<void, PlatformError>
 }
 
@@ -1053,9 +909,35 @@ export interface File {
  * Namespace containing types associated with open file handles, including file
  * descriptors, entry kinds, and stat information.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 export declare namespace File {
+  /**
+   * Options for `File.read` and `File.readAlloc`.
+   *
+   * **Details**
+   *
+   * `position` is a byte offset from the start of the file. It leaves the
+   * cursor unchanged, fails with `BadArgument` if negative, and reads nothing
+   * at or past EOF.
+   *
+   * **Example** (Reading a byte range without moving the cursor)
+   *
+   * ```ts import.meta.vitest
+   * import type { FileSystem } from "effect"
+   *
+   * const options: FileSystem.File.ReadOptions = { position: BigInt(1024) }
+   * options.position // => 1024n
+   * ```
+   *
+   * @category models
+   * @since 4.1.0
+   */
+  export interface ReadOptions {
+    readonly position?: bigint | undefined
+  }
+
   /**
    * Enumeration of possible file system entry types.
    *
@@ -1086,30 +968,42 @@ export declare namespace File {
    * permissions, and size information. This structure is returned by file
    * stat operations.
    *
+   * `dev`, `ino`, `rdev`, `nlink`, and `blocks` are `bigint` values, so
+   * 64-bit device identifiers, inode numbers, and counts are not limited to
+   * the safe integer range. `mode`, `uid`, and `gid` are 32-bit values and
+   * remain `number`. Optional metadata is `Option.none()` only when the
+   * platform does not report it.
+   *
+   * Node and Bun report all fields exactly, with `dev`, `ino`, `rdev`, and
+   * `nlink` interpreted as unsigned 64-bit integers. Unsafe `mode` values fail
+   * the stat operation with `BadArgument`. Deno reports these fields as
+   * `number`, so on Deno values above `Number.MAX_SAFE_INTEGER` are already
+   * rounded before they are converted to `bigint`.
+   *
    * **Example** (Inspecting file information)
    *
    * ```ts import.meta.vitest
-   * import { FileSystem, Option } from "effect"
+   * import { ByteSize, FileSystem, Option } from "effect"
    *
    * const info: FileSystem.File.Info = {
    *   type: "File",
    *   mtime: Option.none(),
    *   atime: Option.none(),
    *   birthtime: Option.none(),
-   *   dev: 1,
+   *   dev: 1n,
    *   ino: Option.none(),
    *   mode: 0o644,
    *   nlink: Option.none(),
    *   uid: Option.none(),
    *   gid: Option.none(),
    *   rdev: Option.none(),
-   *   size: FileSystem.Size(5),
+   *   size: ByteSize.bytes(5),
    *   blksize: Option.none(),
    *   blocks: Option.none()
    * }
    *
    * info.type // => "File"
-   * info.size // => 5n
+   * ByteSize.toBigInt(info.size) // => 5n
    * info.mode.toString(8) // => "644"
    *
    * const modified = Option.match(info.mtime, {
@@ -1128,16 +1022,16 @@ export declare namespace File {
     readonly mtime: Option.Option<Date>
     readonly atime: Option.Option<Date>
     readonly birthtime: Option.Option<Date>
-    readonly dev: number
-    readonly ino: Option.Option<number>
+    readonly dev: bigint
+    readonly ino: Option.Option<bigint>
     readonly mode: number
-    readonly nlink: Option.Option<number>
+    readonly nlink: Option.Option<bigint>
     readonly uid: Option.Option<number>
     readonly gid: Option.Option<number>
-    readonly rdev: Option.Option<number>
-    readonly size: Size
-    readonly blksize: Option.Option<Size>
-    readonly blocks: Option.Option<number>
+    readonly rdev: Option.Option<bigint>
+    readonly size: ByteSize.ByteSize
+    readonly blksize: Option.Option<ByteSize.ByteSize>
+    readonly blocks: Option.Option<bigint>
   }
 }
 
@@ -1157,6 +1051,7 @@ export declare namespace File {
  *
  * @see {@link File} for the open file handle API whose `seek` method consumes this mode
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
@@ -1165,6 +1060,7 @@ export type SeekMode = "start" | "current"
 /**
  * Options for watching files or directories.
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
@@ -1173,6 +1069,12 @@ export interface WatchOptions {
    * When `true`, changes in subdirectories are also reported.
    */
   readonly recursive?: boolean | undefined
+  /**
+   * Called once the underlying watcher is installed and can buffer events.
+   * Stream construction alone does not install a watcher. Custom watch
+   * backends must also call this callback after installation, when supplied.
+   */
+  readonly onReady?: (() => void) | undefined
 }
 
 /**
@@ -1190,6 +1092,7 @@ export interface WatchOptions {
  *
  * @see {@link FileSystem} for the service interface whose `watch` operation emits these events
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
@@ -1198,6 +1101,7 @@ export type WatchEvent = WatchEvent.Create | WatchEvent.Update | WatchEvent.Remo
 /**
  * Namespace containing the concrete event shapes emitted by `FileSystem.watch`.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 export declare namespace WatchEvent {
@@ -1287,6 +1191,7 @@ export declare namespace WatchEvent {
  * Effect.runSync(withCustomBackend) // => true
  * ```
  *
+ * @stability unstable
  * @category services
  * @since 4.0.0
  */
@@ -1296,4 +1201,4 @@ export class WatchBackend extends Context.Service<WatchBackend, {
     stat: File.Info,
     options?: WatchOptions
   ) => Option.Option<Stream.Stream<WatchEvent, PlatformError>>
-}>()("effect/platform/FileSystem/WatchBackend") {}
+}>()("effect/FileSystem/WatchBackend") {}

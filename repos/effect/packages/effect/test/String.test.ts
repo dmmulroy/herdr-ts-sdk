@@ -441,10 +441,13 @@ describe("String", () => {
   describe("repeat", () => {
     it("repeats the string", () => {
       strictEqual(pipe("ab", S.repeat(3)), "ababab")
+      strictEqual(pipe("ab", S.repeat(1.5)), "ab")
     })
 
-    it("returns empty for 0 repeats", () => {
+    it("returns an empty string for non-positive or NaN counts", () => {
       strictEqual(pipe("ab", S.repeat(0)), "")
+      strictEqual(pipe("ab", S.repeat(-1)), "")
+      strictEqual(pipe("ab", S.repeat(Number.NaN)), "")
     })
   })
 
@@ -491,6 +494,7 @@ describe("String", () => {
   describe("takeLeft", () => {
     it("takes n characters from the start (data-first)", () => {
       strictEqual(S.takeLeft("Hello World", 5), "Hello")
+      strictEqual(S.takeLeft("abc", 1.5), "a")
     })
 
     it("takes n characters from the start (data-last)", () => {
@@ -501,15 +505,17 @@ describe("String", () => {
       strictEqual(S.takeLeft("abc", 10), "abc")
     })
 
-    it("returns empty string for n <= 0", () => {
+    it("returns an empty string for non-positive or NaN counts", () => {
       strictEqual(S.takeLeft("abc", 0), "")
       strictEqual(S.takeLeft("abc", -1), "")
+      strictEqual(S.takeLeft("abc", Number.NaN), "")
     })
   })
 
   describe("takeRight", () => {
     it("takes n characters from the end (data-first)", () => {
       strictEqual(S.takeRight("Hello World", 5), "World")
+      strictEqual(S.takeRight("abc", 1.5), "c")
     })
 
     it("takes n characters from the end (data-last)", () => {
@@ -520,9 +526,10 @@ describe("String", () => {
       strictEqual(S.takeRight("abc", 10), "abc")
     })
 
-    it("returns empty string for n <= 0", () => {
+    it("returns an empty string for non-positive or NaN counts", () => {
       strictEqual(S.takeRight("abc", 0), "")
       strictEqual(S.takeRight("abc", -1), "")
+      strictEqual(S.takeRight("abc", Number.NaN), "")
     })
   })
 
@@ -591,6 +598,11 @@ describe("String", () => {
     it("handles an empty string", () => {
       strictEqual(S.snakeToCamel(""), "")
     })
+
+    it("handles trailing and separator-only inputs", () => {
+      strictEqual(S.snakeToCamel("foo_"), "foo")
+      strictEqual(S.snakeToCamel("__"), "")
+    })
   })
 
   describe("snakeToPascal", () => {
@@ -601,6 +613,11 @@ describe("String", () => {
 
     it("handles an empty string", () => {
       strictEqual(S.snakeToPascal(""), "")
+    })
+
+    it("handles trailing and separator-only inputs", () => {
+      strictEqual(S.snakeToPascal("foo_"), "Foo")
+      strictEqual(S.snakeToPascal("__"), "")
     })
   })
 
@@ -666,6 +683,17 @@ describe("String", () => {
     it("splits digit-letter boundaries", () => {
       strictEqual(S.noCase("field2value"), "field 2 value")
       strictEqual(S.noCase("field2Value"), "field 2 value")
+    })
+
+    it("does not transform a word for inputs without words", () => {
+      const parts: Array<string> = []
+      const transform = (part: string) => {
+        parts.push(part)
+        return part
+      }
+      strictEqual(S.noCase("", { transform }), "")
+      strictEqual(S.noCase("---", { transform }), "")
+      deepStrictEqual(parts, [])
     })
   })
 

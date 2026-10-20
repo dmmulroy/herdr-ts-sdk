@@ -1,8 +1,8 @@
 import { OpenAiClient, OpenAiEmbeddingModel } from "@effect/ai-openai"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Redacted } from "effect"
-import { EmbeddingModel } from "effect/unstable/ai"
-import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { EmbeddingModel } from "effect/ai"
+import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"
 
 describe("OpenAiEmbeddingModel", () => {
   it.effect("model provides dimensions service", () =>
@@ -283,6 +283,7 @@ const getRequestBody = (request: HttpClientRequest.HttpClientRequest) =>
 
 const noopOpenAiClient: OpenAiClient.Service = {
   client: undefined as unknown as OpenAiClient.Service["client"],
+  createDecisions: () => Effect.die(new Error("noop")),
   createResponse: () => Effect.die(new Error("noop")),
   createResponseStream: () => Effect.die(new Error("noop")),
   createEmbedding: () => Effect.die(new Error("noop"))

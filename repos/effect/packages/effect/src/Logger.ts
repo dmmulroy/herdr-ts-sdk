@@ -7,6 +7,7 @@
  * logger references, console routing helpers, built-in formatters, batching,
  * file logging, and layers for installing loggers.
  *
+ * @stability stable
  * @since 2.0.0
  */
 import * as Array from "./Array.ts"
@@ -58,6 +59,7 @@ const TypeId = "~effect/Logger"
  * messages // => ["[Info] Hello World"]
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -95,6 +97,7 @@ export interface Logger<in Message, out Output> extends Pipeable {
  * outputs // => [{ message: ["Processing request"], level: "Info", hasCause: false }]
  * ```
  *
+ * @stability stable
  * @category options
  * @since 2.0.0
  */
@@ -121,6 +124,7 @@ export interface Options<out Message> {
  * Logger.isLogger({ log: () => {} }) // => false
  * ```
  *
+ * @stability stable
  * @category guards
  * @since 4.0.0
  */
@@ -156,6 +160,7 @@ export const isLogger = (u: unknown): u is Logger<unknown, unknown> => Predicate
  * messages // => [["Hello from custom logger"]]
  * ```
  *
+ * @stability stable
  * @category services
  * @since 4.0.0
  */
@@ -179,6 +184,7 @@ export const CurrentLoggers: Context.Reference<ReadonlySet<Logger<unknown, any>>
  * @see {@link consolePretty} for the TTY-mode pretty console logger affected by this reference
  * @see {@link withConsoleError} for routing a specific formatter logger to `console.error`
  *
+ * @stability stable
  * @category services
  * @since 4.0.0
  */
@@ -214,6 +220,7 @@ export const LogToStderr: Context.Reference<boolean> = effect.LogToStderr
  * outputs // => [{ message: "HELLO" }]
  * ```
  *
+ * @stability stable
  * @category mapping
  * @since 2.0.0
  */
@@ -259,6 +266,7 @@ export const map = dual<
  * await Effect.runPromise(program) // => ["Info: Hello World"]
  * ```
  *
+ * @stability stable
  * @category logging
  * @since 2.0.0
  */
@@ -299,6 +307,7 @@ export const withConsoleLog = <Message, Output>(
  * await Effect.runPromise(program) // => ["ERROR: Database connection failed"]
  * ```
  *
+ * @stability stable
  * @category logging
  * @since 2.0.0
  */
@@ -353,6 +362,7 @@ export const withConsoleError = <Message, Output>(
  * messages // => expected
  * ```
  *
+ * @stability stable
  * @category logging
  * @since 3.8.0
  */
@@ -413,7 +423,7 @@ const format = (
   const append = (label: string, value: string): string => " " + format(label, value)
 
   let out = format("timestamp", date.toISOString())
-  out += append("level", logLevel)
+  out += append("level", logLevel.toUpperCase())
   out += append("fiber", formatFiberId(fiber.id))
 
   const messages = Array.ensure(message)
@@ -465,6 +475,7 @@ const format = (
  * outputs // => ["Info: Hello World"]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 2.0.0
  */
@@ -483,6 +494,7 @@ export const make: <Message, Output>(
  * Logger.isLogger(Logger.defaultLogger) // => true
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 2.0.0
  */
@@ -515,9 +527,10 @@ export const defaultLogger: Logger<unknown, void> = effect.defaultLogger
  *   return yield* TestConsole.logLines
  * }).pipe(Effect.provide(TestConsole.layer))
  *
- * await Effect.runPromise(program) // => ["level=Info message=\"Application started\""]
+ * await Effect.runPromise(program) // => ["level=INFO message=\"Application started\""]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -550,9 +563,10 @@ export const formatSimple = effect.loggerMake(format(escapeDoubleQuotes))
  *   return yield* TestConsole.logLines
  * }).pipe(Effect.provide(TestConsole.layer))
  *
- * await Effect.runPromise(program) // => ["level=Info message=\"User login\""]
+ * await Effect.runPromise(program) // => ["level=INFO message=\"User login\""]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -588,6 +602,7 @@ export const formatLogFmt = effect.loggerMake(format(JSON.stringify, 0))
  * await Effect.runPromise(program) // => [{ message: "User action", level: "INFO" }]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -658,6 +673,7 @@ export const formatStructured: Logger<unknown, {
  * await Effect.runPromise(program) // => ["{\"message\":\"Server started\",\"level\":\"INFO\"}"]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -696,6 +712,7 @@ export const formatJson = map(formatStructured, Formatter.formatJson)
  * flushed // => [["Event 1", "Event 2"]]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 2.0.0
  */
@@ -720,16 +737,16 @@ export const batched = dual<
     readonly flush: (messages: Array<NoInfer<Output>>) => Effect.Effect<void>
   }
 ): Effect.Effect<Logger<Message, void>, never, Scope.Scope> =>
-  effect.flatMap(effect.scope, (scope) => {
+  effect.suspend(() => {
     let buffer: Array<Output> = []
-    const flush = effect.suspend(() => {
+    const flush = effect.uninterruptible(effect.suspend(() => {
       if (buffer.length === 0) {
         return effect.void
       }
       const arr = buffer
       buffer = []
       return options.flush(arr)
-    })
+    }))
 
     return effect.uninterruptibleMask((restore) =>
       restore(
@@ -739,8 +756,12 @@ export const batched = dual<
         )
       ).pipe(
         effect.forkDetach,
-        effect.flatMap((fiber) => effect.scopeAddFinalizerExit(scope, () => effect.fiberInterrupt(fiber))),
-        effect.andThen(effect.addFinalizer(() => flush)),
+        effect.flatMap((fiber) =>
+          effect.addFinalizer(() =>
+            // Wait for any in-flight flush before draining the remaining buffer.
+            effect.andThen(effect.fiberInterrupt(fiber), flush)
+          )
+        ),
         effect.as(
           effect.loggerMake((options) => {
             buffer.push(self.log(options))
@@ -752,7 +773,9 @@ export const batched = dual<
 
 /**
  * A `Logger` which outputs logs in a "pretty" format and writes them to the
- * console.
+ * console. Chooses between tty and browser implementation. If the runtime
+ * platform is known and fixed, prefer {@link consolePrettyBrowser} or
+ * {@link consolePrettyTty}.
  *
  * **Details**
  *
@@ -763,23 +786,137 @@ export const batched = dual<
  * **Example** (Logging with pretty console output)
  *
  * ```ts import.meta.vitest
- * import { Logger } from "effect"
+ * import { Effect, Logger } from "effect"
  *
- * const prettyLogger = Logger.consolePretty({ colors: false })
- * Logger.isLogger(prettyLogger) // => true
+ * const prettyLogger = Logger.layer([Logger.consolePretty()])
+ *
+ * Effect.log("hello").pipe(
+ *   Effect.withLogSpan('label'),
+ *   Effect.annotateLogs('key', 'value'),
+ *   Effect.provide(prettyLogger),
+ *   Effect.runSync
+ * )
  * ```
  *
+ * **Example** (Logging with console.error, when the environment has TTY)
+ *
+ * ```ts import.meta.vitest
+ * import { Effect, Layer, Logger } from "effect"
+ *
+ * const prettyLoggerLayer = Layer.merge(
+ *   Logger.layer([Logger.consolePretty()]),
+ *   Layer.succeed(Logger.LogToStderr, true)
+ * )
+ *
+ * Effect.log('hello').pipe(
+ *   Effect.provide(prettyLoggerLayer),
+ *   Effect.runSync
+ * )
+ * ```
+ *
+ * @see {@link consolePrettyBrowser} for browser-specific implementation
+ * @see {@link consolePrettyTty} for the TTY-mode implementation
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
 export const consolePretty: (
   options?: {
     readonly colors?: "auto" | boolean | undefined
-    readonly stderr?: boolean | undefined
     readonly formatDate?: ((date: Date) => string) | undefined
     readonly mode?: "browser" | "tty" | "auto" | undefined
   }
 ) => Logger<unknown, void> = effect.consolePretty
+
+/**
+ * A `Logger` which outputs logs in a "pretty" format and writes them to the
+ * console. Intended to be used on platforms with a browser console.
+ *
+ * **Details**
+ *
+ * For example, pretty output can render as
+ * `[09:37:17.579] INFO (#1) label=0ms: hello` followed by an annotation line
+ * such as `key: value`.
+ *
+ * **Example** (Logging with pretty console output)
+ *
+ * ```ts import.meta.vitest
+ * import { Effect, Logger } from "effect"
+ *
+ * const prettyLogger = Logger.layer([Logger.consolePrettyBrowser()])
+ *
+ * Effect.log("hello").pipe(
+ *   Effect.withLogSpan('label'),
+ *   Effect.annotateLogs('key', 'value'),
+ *   Effect.provide(prettyLogger),
+ *   Effect.runSync
+ * )
+ * ```
+ *
+ * @see {@link consolePretty} for the platform-independent implementation
+ * @stability stable
+ * @category constructors
+ * @since 4.0.0
+ */
+export const consolePrettyBrowser: (
+  options?: {
+    readonly colors?: boolean | undefined
+    readonly formatDate?: ((date: Date) => string) | undefined
+  }
+) => Logger<unknown, void> = effect.prettyLoggerBrowser
+
+/**
+ * A `Logger` which outputs logs in a "pretty" format and writes them to the
+ * console. Intended to be used on platforms with tty console.
+ *
+ * **Details**
+ *
+ * For example, pretty output can render as
+ * `[09:37:17.579] INFO (#1) label=0ms: hello` followed by an annotation line
+ * such as `key: value`.
+ *
+ * **Example** (Logging with pretty console output)
+ *
+ * ```ts import.meta.vitest
+ * import { Effect, Logger } from "effect"
+ *
+ * const prettyLogger = Logger.layer([Logger.consolePrettyTty()])
+ *
+ * Effect.log("hello").pipe(
+ *   Effect.withLogSpan('label'),
+ *   Effect.annotateLogs('key', 'value'),
+ *   Effect.provide(prettyLogger),
+ *   Effect.runSync
+ * )
+ * ```
+ *
+ * **Example** (Logging with console.error)
+ *
+ * ```ts import.meta.vitest
+ * import { Effect, Layer, Logger } from "effect"
+ *
+ * const prettyLoggerLayer = Layer.merge(
+ *   Logger.layer([Logger.consolePrettyTty()]),
+ *   Layer.succeed(Logger.LogToStderr, true)
+ * )
+ *
+ * Effect.log('hello').pipe(
+ *   Effect.provide(prettyLoggerLayer),
+ *   Effect.runSync
+ * )
+ * ```
+ *
+ * @see {@link consolePretty} for the platform-independent implementation
+ * @stability stable
+ * @category constructors
+ * @since 4.0.0
+ */
+export const consolePrettyTty: (
+  options?: {
+    readonly colors?: boolean | undefined
+    readonly formatDate?: ((date: Date) => string) | undefined
+  }
+) => Logger<unknown, void> = effect.prettyLoggerTty
 
 /**
  * A `Logger` which outputs logs using the [logfmt](https://brandur.org/logfmt)
@@ -798,6 +935,7 @@ export const consolePretty: (
  * Logger.isLogger(Logger.consoleLogFmt) // => true
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -823,6 +961,7 @@ export const consoleLogFmt: Logger<unknown, void> = withConsoleLog(formatLogFmt)
  * Logger.isLogger(Logger.consoleStructured) // => true
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -846,6 +985,7 @@ export const consoleStructured: Logger<unknown, void> = withConsoleLog(formatStr
  * Logger.isLogger(Logger.consoleJson) // => true
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -876,6 +1016,7 @@ export const consoleJson: Logger<unknown, void> = withConsoleLog(formatJson)
  * Effect.runSync(program)
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 2.0.0
  */
@@ -899,15 +1040,16 @@ export const tracerLogger: Logger<unknown, void> = effect.tracerLogger
  * const customLogger = Logger.make((options) => {
  *   messages.push(options.message)
  * })
- * const CustomLoggerLive = Logger.layer([customLogger])
+ * const CustomLoggerLayer = Logger.layer([customLogger])
  *
  * const program = Effect.log("Application started").pipe(
- *   Effect.provide(CustomLoggerLive)
+ *   Effect.provide(CustomLoggerLayer)
  * )
  * Effect.runSync(program)
  * messages // => [["Application started"]]
  * ```
  *
+ * @stability stable
  * @category layers
  * @since 4.0.0
  */
@@ -951,9 +1093,8 @@ export const layer = <
  *
  * const writes: Array<string> = []
  * const file = {
- *   write: (buffer: Uint8Array) => Effect.sync(() => {
+ *   writeAll: (buffer: Uint8Array) => Effect.sync(() => {
  *     writes.push(new TextDecoder().decode(buffer).trim())
- *     return FileSystem.Size(buffer.length)
  *   })
  * } as unknown as FileSystem.File
  * const fileSystem = FileSystem.makeNoop({ open: () => Effect.succeed(file) })
@@ -977,9 +1118,8 @@ export const layer = <
  *
  * const writes: Array<string> = []
  * const file = {
- *   write: (buffer: Uint8Array) => Effect.sync(() => {
+ *   writeAll: (buffer: Uint8Array) => Effect.sync(() => {
  *     writes.push(new TextDecoder().decode(buffer).trim())
- *     return FileSystem.Size(buffer.length)
  *   })
  * } as unknown as FileSystem.File
  * const fileSystem = FileSystem.makeNoop({ open: () => Effect.succeed(file) })
@@ -998,6 +1138,7 @@ export const layer = <
  * writes // => ["Application started"]
  * ```
  *
+ * @stability unstable
  * @category logging
  * @since 4.0.0
  */
@@ -1030,7 +1171,7 @@ export const toFile = dual<
       const encoder = new TextEncoder()
       return yield* batched(self, {
         window: options?.batchWindow ?? 1000,
-        flush: (output) => effect.ignore(logFile.write(encoder.encode(output.join("\n") + "\n")))
+        flush: (output) => effect.ignore(logFile.writeAll(encoder.encode(output.join("\n") + "\n")))
       })
     })
 )

@@ -4,6 +4,8 @@ import type { Effect } from "../Effect.ts"
 import type { Exit } from "../Exit.ts"
 import type { Fiber } from "../Fiber.ts"
 import { dual } from "../Function.ts"
+import * as MutableHashMap from "../MutableHashMap.ts"
+import * as Option from "../Option.ts"
 import type * as Request from "../Request.ts"
 import { makeEntry } from "../Request.ts"
 import type { RequestResolver } from "../RequestResolver.ts"
@@ -62,15 +64,41 @@ export const requestUnsafe = <A extends Request.Any>(
 ): () => void => {
   const entry = addEntry(options.resolver, self, options.onExit, {
     context: options.context,
-    currentScheduler: Context.get(options.context, Scheduler)
+    cache: { scheduler: Context.get(options.context, Scheduler) }
   })
   return () => removeEntryUnsafe(options.resolver, entry)
+}
+
+/**
+ * Pending batches of resolvers whose `batchKey` is in this set match keys with
+ * `Equal` instead of by reference.
+ *
+ * @internal
+ */
+export const equalBatchKeys = new WeakSet<Function>()
+
+interface BatchMap {
+  get(key: unknown): Batch | undefined
+  has(key: unknown): boolean
+  set(key: unknown, batch: Batch): void
+  delete(key: unknown): void
+}
+
+const makeBatchMap = (resolver: RequestResolver<any>): BatchMap => {
+  if (!equalBatchKeys.has(resolver.batchKey)) return new Map()
+  const map = MutableHashMap.empty<unknown, Batch>()
+  return {
+    get: (key) => Option.getOrUndefined(MutableHashMap.get(map, key)),
+    has: (key) => MutableHashMap.has(map, key),
+    set: (key, batch) => MutableHashMap.set(map, key, batch),
+    delete: (key) => MutableHashMap.remove(map, key)
+  }
 }
 
 interface Batch {
   key: unknown
   resolver: RequestResolver<any>
-  map: Map<unknown, Batch>
+  map: BatchMap
   readonly entrySet: Set<Request.Entry<any>>
   readonly entries: Set<Request.Entry<any>>
   readonly delayEffect: Effect<void>
@@ -79,7 +107,7 @@ interface Batch {
 }
 
 const batchPool: Array<Batch> = []
-const pendingBatches = new WeakMap<RequestResolver<any>, Map<unknown, Batch>>()
+const pendingBatches = new WeakMap<RequestResolver<any>, BatchMap>()
 
 const addEntry = <A extends Request.Any>(
   resolver: RequestResolver<A>,
@@ -87,13 +115,13 @@ const addEntry = <A extends Request.Any>(
   resume: (exit: Exit<any, any>) => void,
   fiber: {
     readonly context: Context.Context<never>
-    readonly currentScheduler: Scheduler
+    readonly cache: { readonly scheduler: Scheduler }
     readonly id?: number
   }
 ) => {
   let batchMap = pendingBatches.get(resolver)
   if (!batchMap) {
-    batchMap = new Map<object, Batch>()
+    batchMap = makeBatchMap(resolver)
     pendingBatches.set(resolver, batchMap)
   }
   let batch: Batch | undefined
@@ -105,8 +133,9 @@ const addEntry = <A extends Request.Any>(
     completeUnsafe(effect) {
       if (completed) return
       completed = true
+      // Removed entries still notify resolver hooks, but not their cancelled callers.
+      if (batch && !batch.entrySet.delete(entry)) return
       resume(effect)
-      batch?.entrySet.delete(entry)
     }
   })
   if (resolver.preCheck !== undefined && !resolver.preCheck(entry)) {
@@ -161,7 +190,7 @@ const addEntry = <A extends Request.Any>(
       batch = newBatch
     }
     batchMap.set(key, batch)
-    batch.fiber = effect.runForkWith(fiber.context)(batch.delayEffect, { scheduler: fiber.currentScheduler })
+    batch.fiber = effect.runForkWith(fiber.context)(batch.delayEffect, { scheduler: fiber.cache.scheduler })
   }
 
   batch.entrySet.add(entry)
@@ -169,7 +198,7 @@ const addEntry = <A extends Request.Any>(
   if (batch.resolver.collectWhile(batch.entries)) return entry
 
   batch.fiber!.interruptUnsafe(fiber.id)
-  batch.fiber = effect.runForkWith(fiber.context)(runBatch(batch), { scheduler: fiber.currentScheduler })
+  batch.fiber = effect.runForkWith(fiber.context)(runBatch(batch), { scheduler: fiber.cache.scheduler })
   return entry
 }
 
@@ -184,13 +213,17 @@ const removeEntryUnsafe = <A extends Request.Any>(
   const batch = batchMap.get(key)
   if (!batch) return
 
-  batch.entries.delete(entry)
+  if (!batch.entries.delete(entry)) return
   batch.entrySet.delete(entry)
 
+  let fiber: Fiber<void, unknown> | undefined
   if (batch.entries.size === 0) {
     batchMap.delete(key)
-    batch.fiber?.interruptUnsafe()
+    fiber = batch.fiber
   }
+  // Delay finalizers may enqueue new requests, so complete the removed entry first.
+  entry.completeUnsafe(effect.exitInterrupt())
+  fiber?.interruptUnsafe()
 }
 
 const maybeRemoveEntry = <A extends Request.Any>(

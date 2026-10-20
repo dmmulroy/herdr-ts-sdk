@@ -11,6 +11,7 @@ import {
   Fiber,
   Latch,
   Layer,
+  Schedule,
   Scheduler,
   Stream
 } from "effect"
@@ -69,6 +70,55 @@ describe("ExecutionPlan", () => {
         /ExecutionPlan\.make: step\[0\]\.attempts must be greater than 0/
       )
     })
+  })
+
+  describe("captureRequirements", () => {
+    class Policy extends Context.Service<Policy, { allow: boolean }>()("ExecutionPlan.test/Policy") {}
+
+    const failOnce = () => {
+      let attempts = 0
+      return Effect.suspend(() => ++attempts === 1 ? Effect.fail("busy") : Effect.succeed("ok"))
+    }
+
+    const plan = ExecutionPlan.make({
+      provide: Context.empty(),
+      attempts: 2,
+      while: (_: string) => Effect.map(Policy, ({ allow }) => allow)
+    })
+
+    it.effect("captures while predicate requirements", () =>
+      Effect.gen(function*() {
+        const captured = yield* plan.captureRequirements.pipe(Effect.provideService(Policy, { allow: true }))
+        const result = yield* Effect.withExecutionPlan(failOnce(), captured)
+        strictEqual(result, "ok")
+      }))
+
+    it.effect("prefers captured while predicate requirements over the ambient context", () =>
+      Effect.gen(function*() {
+        const captured = yield* plan.captureRequirements.pipe(Effect.provideService(Policy, { allow: true }))
+        const result = yield* Effect.withExecutionPlan(failOnce(), captured).pipe(
+          Effect.provideService(Policy, { allow: false })
+        )
+        strictEqual(result, "ok")
+      }))
+
+    it.effect("captures schedule requirements", () =>
+      Effect.gen(function*() {
+        const schedulePlan = ExecutionPlan.make({
+          provide: Layer.empty,
+          schedule: Schedule.recurs(1).pipe(
+            Schedule.map(() =>
+              Effect.flatMap(Policy, ({ allow }) => allow ? Effect.void : Effect.fail("denied" as const))
+            )
+          )
+        })
+        const captured = yield* schedulePlan.captureRequirements.pipe(Effect.provideService(Policy, { allow: true }))
+        for (const ambient of [undefined, { allow: false }]) {
+          const program = Effect.withExecutionPlan(failOnce(), captured)
+          const result = yield* ambient ? Effect.provideService(program, Policy, ambient) : program
+          strictEqual(result, "ok")
+        }
+      }))
   })
 
   describe("Stream.withExecutionPlan", () => {
@@ -240,6 +290,26 @@ describe("ExecutionPlan", () => {
           assertTrue(events[1]._tag === "AttemptSuccess" && Duration.isDuration(events[1].duration))
         }))
 
+      it.effect("observer defects do not change the outcome or leave attempts unpaired", () =>
+        Effect.gen(function*() {
+          const events = Array.empty<string>()
+          const exit = yield* Effect.succeed("source-success").pipe(
+            Effect.withExecutionPlan(ExecutionPlan.make({ provide: Context.empty() }), {
+              onEvent: (event) =>
+                Effect.sync(() => events.push(event._tag)).pipe(
+                  Effect.andThen(Effect.die("observer-defect"))
+                )
+            }),
+            Effect.exit
+          )
+
+          deepStrictEqual(
+            { exit, events },
+            { exit: Exit.succeed("source-success"), events: ["AttemptStart", "AttemptSuccess"] },
+            "observer defects must not affect the source outcome"
+          )
+        }))
+
       it.effect("emits an event pair per attempt within a step", () =>
         Effect.gen(function*() {
           const { events, onEvent } = makeCollector()
@@ -380,6 +450,27 @@ describe("ExecutionPlan", () => {
     })
 
     describe("Stream.withExecutionPlan", () => {
+      it.effect("observer defects do not change the outcome or leave attempts unpaired", () =>
+        Effect.gen(function*() {
+          const events = Array.empty<string>()
+          const exit = yield* Stream.succeed("source-success").pipe(
+            Stream.withExecutionPlan(ExecutionPlan.make({ provide: Context.empty() }), {
+              onEvent: (event) =>
+                Effect.sync(() => events.push(event._tag)).pipe(
+                  Effect.andThen(Effect.die("observer-defect"))
+                )
+            }),
+            Stream.runCollect,
+            Effect.exit
+          )
+
+          deepStrictEqual(
+            { exit, events },
+            { exit: Exit.succeed(["source-success"]), events: ["AttemptStart", "AttemptSuccess"] },
+            "observer defects must not affect the source outcome"
+          )
+        }))
+
       it.effect("emits events for each step attempt", () =>
         Effect.gen(function*() {
           const { events, onEvent } = makeCollector()

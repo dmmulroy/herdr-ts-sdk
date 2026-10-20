@@ -1,6 +1,6 @@
 {
   "name": "@effect/doctest",
-  "version": "4.0.0-beta.105",
+  "version": "4.0.5",
   "type": "module",
   "license": "MIT",
   "description": "Runs TypeScript documentation examples as Vitest tests",
@@ -46,18 +46,18 @@
     "check": "tsc -b tsconfig.json"
   },
   "dependencies": {
-    "rolldown": "^1.1.5"
+    "rolldown": "^1.2.13"
   },
   "peerDependencies": {
     "effect": "workspace:^",
     "vite": ">=8.1.5 <9.0.0",
-    "vitest": ">=4.1.10 <5.0.0"
+    "vitest": ">=5.0.0 <6.0.0"
   },
   "devDependencies": {
     "@effect/vitest": "workspace:^",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.6.5",
     "effect": "workspace:^",
-    "vite": "^8.1.5",
-    "vitest": "^4.1.10"
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
   }
 }

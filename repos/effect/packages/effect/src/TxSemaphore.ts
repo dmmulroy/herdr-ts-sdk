@@ -7,10 +7,12 @@
  * creating semaphores, checking capacity and availability, acquiring or
  * releasing permits, and running effects while permits are held.
  *
+ * @stability stable
  * @since 4.0.0
  */
 
 import * as Effect from "./Effect.ts"
+import { dual } from "./Function.ts"
 import type { Inspectable } from "./Inspectable.ts"
 import { NodeInspectSymbol, toJson } from "./Inspectable.ts"
 import type { Pipeable } from "./Pipeable.ts"
@@ -19,7 +21,7 @@ import { hasProperty } from "./Predicate.ts"
 import type * as Scope from "./Scope.ts"
 import * as TxRef from "./TxRef.ts"
 
-const TypeId = "~effect/transactions/TxSemaphore"
+const TypeId = "~effect/TxSemaphore"
 
 /**
  * A transactional semaphore that manages permits using Software Transactional
@@ -60,6 +62,7 @@ const TypeId = "~effect/transactions/TxSemaphore"
  * @see {@link withPermit} for automatically acquiring and releasing one permit
  * @see {@link acquire} for manually acquiring one permit transactionally
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -121,6 +124,7 @@ const makeTxSemaphore = (permitsRef: TxRef.TxRef<number>, capacity: number): TxS
  * @see {@link available} for reading the current available permit count
  * @see {@link capacity} for reading the fixed total permit count
  *
+ * @stability stable
  * @category constructors
  * @since 2.0.0
  */
@@ -166,6 +170,7 @@ export const make = (permits: number): Effect.Effect<TxSemaphore> =>
  *
  * @see {@link capacity} for reading the fixed total permit count
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
@@ -199,6 +204,7 @@ export const available = (self: TxSemaphore): Effect.Effect<number> => TxRef.get
  *
  * @see {@link available} for reading the current available permit count
  *
+ * @stability stable
  * @category combinators
  * @since 4.0.0
  */
@@ -235,6 +241,7 @@ export const capacity = (self: TxSemaphore): Effect.Effect<number> => Effect.suc
  * @see {@link release} for returning one permit
  * @see {@link withPermit} for automatic acquire and release around an effect
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
@@ -285,10 +292,14 @@ export const acquire = (self: TxSemaphore): Effect.Effect<void> =>
  * @see {@link releaseN} for returning multiple permits
  * @see {@link withPermits} for automatic acquire and release around an effect
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
-export const acquireN = (self: TxSemaphore, n: number): Effect.Effect<void> => {
+export const acquireN: {
+  (n: number): (self: TxSemaphore) => Effect.Effect<void>
+  (self: TxSemaphore, n: number): Effect.Effect<void>
+} = dual(2, (self: TxSemaphore, n: number): Effect.Effect<void> => {
   if (n <= 0) {
     return Effect.die(new Error("Number of permits must be positive"))
   }
@@ -299,7 +310,7 @@ export const acquireN = (self: TxSemaphore, n: number): Effect.Effect<void> => {
     }
     yield* TxRef.set(self.permitsRef, permits - n)
   }).pipe(Effect.tx)
-}
+})
 
 /**
  * Tries to acquire a single permit from the semaphore without blocking,
@@ -332,6 +343,7 @@ export const acquireN = (self: TxSemaphore, n: number): Effect.Effect<void> => {
  * @see {@link acquire} for waiting until one permit is available
  * @see {@link tryAcquireN} for attempting to acquire multiple permits without blocking
  *
+ * @stability stable
  * @category combinators
  * @since 4.0.0
  */
@@ -375,10 +387,14 @@ export const tryAcquire = (self: TxSemaphore): Effect.Effect<boolean> =>
  * @see {@link acquireN} for waiting until all requested permits are available
  * @see {@link tryAcquire} for attempting to acquire one permit without blocking
  *
+ * @stability stable
  * @category combinators
  * @since 4.0.0
  */
-export const tryAcquireN = (self: TxSemaphore, n: number): Effect.Effect<boolean> => {
+export const tryAcquireN: {
+  (n: number): (self: TxSemaphore) => Effect.Effect<boolean>
+  (self: TxSemaphore, n: number): Effect.Effect<boolean>
+} = dual(2, (self: TxSemaphore, n: number): Effect.Effect<boolean> => {
   if (n <= 0) {
     return Effect.die(new Error("Number of permits must be positive"))
   }
@@ -388,7 +404,7 @@ export const tryAcquireN = (self: TxSemaphore, n: number): Effect.Effect<boolean
     }
     return [false, permits]
   })
-}
+})
 
 /**
  * Releases one permit back to the semaphore, making it available for
@@ -427,6 +443,7 @@ export const tryAcquireN = (self: TxSemaphore, n: number): Effect.Effect<boolean
  * @see {@link acquire} for manually acquiring one permit
  * @see {@link releaseN} for returning multiple permits
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
@@ -472,10 +489,14 @@ export const release = (self: TxSemaphore): Effect.Effect<void> =>
  * @see {@link acquireN} for manually acquiring multiple permits
  * @see {@link release} for returning one permit
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
-export const releaseN = (self: TxSemaphore, n: number): Effect.Effect<void> => {
+export const releaseN: {
+  (n: number): (self: TxSemaphore) => Effect.Effect<void>
+  (self: TxSemaphore, n: number): Effect.Effect<void>
+} = dual(2, (self: TxSemaphore, n: number): Effect.Effect<void> => {
   if (n <= 0) {
     return Effect.die(new Error("Number of permits must be positive"))
   }
@@ -483,7 +504,21 @@ export const releaseN = (self: TxSemaphore, n: number): Effect.Effect<void> => {
     const newPermits = permits + n
     return newPermits > self.capacity ? self.capacity : newPermits
   })
-}
+})
+
+/**
+ * Runs `effect` between `acquire` and `release`. Acquisition and `effect`
+ * inherit the caller's interruptibility, while the handoff from a successful
+ * acquisition to the release finalizer stays protected.
+ */
+const withAcquired = <A, E, R>(
+  acquire: Effect.Effect<void>,
+  effect: Effect.Effect<A, E, R>,
+  release: Effect.Effect<void>
+): Effect.Effect<A, E, R> =>
+  Effect.uninterruptibleMask((restore) =>
+    Effect.flatMap(restore(acquire), () => Effect.ensuring(restore(effect), release))
+  )
 
 /**
  * Executes an effect with a single permit from the semaphore. The permit is
@@ -532,6 +567,7 @@ export const releaseN = (self: TxSemaphore, n: number): Effect.Effect<void> => {
  * @see {@link withPermitScoped} for acquiring one permit for the current scope
  * @see {@link acquire} for manual single-permit acquisition
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
@@ -539,21 +575,9 @@ export const withPermit: {
   (self: TxSemaphore): <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
   <A, E, R>(self: TxSemaphore, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>
 } = ((...args: Array<any>) => {
-  if (args.length === 1) {
-    const [self] = args
-    return (effect: Effect.Effect<any, any, any>) =>
-      Effect.acquireUseRelease(
-        acquire(self),
-        () => effect,
-        () => release(self)
-      )
-  }
-  const [self, effect] = args
-  return Effect.acquireUseRelease(
-    acquire(self),
-    () => effect,
-    () => release(self)
-  )
+  const [self] = args
+  const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => withAcquired(acquire(self), effect, release(self))
+  return args.length === 1 ? run : run(args[1])
 }) as any
 
 /**
@@ -606,6 +630,7 @@ export const withPermit: {
  * @see {@link withPermit} for automatically acquiring and releasing one permit
  * @see {@link acquireN} for manual multi-permit acquisition
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
@@ -613,21 +638,9 @@ export const withPermits: {
   (self: TxSemaphore, n: number): <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>
   <A, E, R>(self: TxSemaphore, n: number, effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>
 } = ((...args: Array<any>) => {
-  if (args.length === 2) {
-    const [self, n] = args
-    return (effect: Effect.Effect<any, any, any>) =>
-      Effect.acquireUseRelease(
-        acquireN(self, n),
-        () => effect,
-        () => releaseN(self, n)
-      )
-  }
-  const [self, n, effect] = args
-  return Effect.acquireUseRelease(
-    acquireN(self, n),
-    () => effect,
-    () => releaseN(self, n)
-  )
+  const [self, n] = args
+  const run = <A, E, R>(effect: Effect.Effect<A, E, R>) => withAcquired(acquireN(self, n), effect, releaseN(self, n))
+  return args.length === 2 ? run : run(args[2])
 }) as any
 
 /**
@@ -678,13 +691,15 @@ export const withPermits: {
  * @see {@link withPermit} for acquiring one permit around a single effect
  * @see {@link acquire} for manual single-permit acquisition
  *
+ * @stability stable
  * @category combinators
  * @since 2.0.0
  */
 export const withPermitScoped = (self: TxSemaphore): Effect.Effect<void, never, Scope.Scope> =>
   Effect.acquireRelease(
     acquire(self),
-    () => release(self)
+    () => release(self),
+    { interruptible: true }
   )
 
 /**
@@ -719,6 +734,7 @@ export const withPermitScoped = (self: TxSemaphore): Effect.Effect<void, never, 
  *
  * @see {@link make} for creating a `TxSemaphore`
  *
+ * @stability stable
  * @category guards
  * @since 4.0.0
  */

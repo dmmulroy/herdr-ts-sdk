@@ -6,6 +6,7 @@
  * available. The module also provides `invalidate` for forcing the next `get`
  * to acquire a fresh resource.
  *
+ * @stability stable
  * @since 3.5.0
  */
 import type * as Duration from "./Duration.ts"
@@ -61,6 +62,7 @@ const TypeId = "~effect/RcRef"
  * await Effect.runPromise(Effect.scoped(program)) // => [true, ["closed Connected to postgres://localhost"]]
  * ```
  *
+ * @stability stable
  * @category models
  * @since 3.5.0
  */
@@ -82,6 +84,7 @@ export interface RcRef<out A, out E = never> extends Pipeable {
  *
  * ```
  *
+ * @stability stable
  * @since 3.5.0
  */
 export declare namespace RcRef {
@@ -151,6 +154,7 @@ export declare namespace RcRef {
  * events // => ["released foo"]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 3.5.0
  */
@@ -158,8 +162,16 @@ export const make: <A, E, R>(
   options: {
     readonly acquire: Effect.Effect<A, E, R>
     /**
-     * When the reference count reaches zero, the resource will be released
-     * after this duration.
+     * How long to keep an idle resource after its last reference is released.
+     *
+     * If the resource has not been invalidated, finite durations, including `0`,
+     * schedule release in a forked fiber that the scope releasing the last
+     * reference does not await. An infinite duration keeps the idle resource
+     * until invalidation or the RcRef's scope closes.
+     *
+     * If this option is omitted or the resource has been invalidated with
+     * `RcRef.invalidate`, the scope releasing the last reference releases the
+     * resource and awaits completion.
      */
     readonly idleTimeToLive?: Duration.Input | undefined
   }
@@ -206,6 +218,7 @@ export const make: <A, E, R>(
  * await Effect.runPromise(Effect.scoped(program)) // => [true, ["released shared resource"]]
  * ```
  *
+ * @stability stable
  * @category combinators
  * @since 3.5.0
  */
@@ -230,6 +243,7 @@ export const get: <A, E>(self: RcRef<A, E>) => Effect.Effect<A, E, Scope> = inte
  *
  * @see {@link get} for acquiring the current cached resource or the fresh resource after invalidation
  *
+ * @stability stable
  * @category combinators
  * @since 3.19.6
  */

@@ -7,9 +7,11 @@
  * external span support, trace propagation settings, and the default in-memory
  * span implementation.
  *
+ * @stability stable
  * @since 2.0.0
  */
 import * as Context from "./Context.ts"
+import * as Hex from "./encoding/Hex.ts"
 import type * as Exit from "./Exit.ts"
 import type { Fiber } from "./Fiber.ts"
 import { constFalse, type LazyArg } from "./Function.ts"
@@ -22,6 +24,7 @@ import * as Option from "./Option.ts"
  * `span` to allocate a span from the supplied name, parent, annotations,
  * links, start time, kind, root flag, and sampling decision.
  *
+ * @stability stable
  * @category services
  * @since 2.0.0
  */
@@ -47,6 +50,7 @@ const evaluate = "~effect/Effect/evaluate" satisfies core.evaluate
  * A low-level Effect primitive that can be evaluated by a tracer-specific
  * context for the current fiber.
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -84,6 +88,7 @@ export interface EffectPrimitive<X> {
  * endedStatus.endTime - endedStatus.startTime // => 500_000_000n
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -118,6 +123,7 @@ export type SpanStatus = {
  * await Effect.runPromise(getSpanIds(externalSpan)) // => ["span-123", "trace-456"]
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -140,6 +146,7 @@ export type AnySpan = Span | ExternalSpan
  * Tracer.ParentSpanKey // => "effect/Tracer/ParentSpan"
  * ```
  *
+ * @stability stable
  * @category constants
  * @since 4.0.0
  */
@@ -164,6 +171,7 @@ export const ParentSpanKey = "effect/Tracer/ParentSpan"
  * await Effect.runPromise(Effect.provideService(program, Tracer.ParentSpan, parent)) // => "span-123"
  * ```
  *
+ * @stability stable
  * @category services
  * @since 2.0.0
  */
@@ -192,6 +200,7 @@ export class ParentSpan extends Context.Service<ParentSpan, AnySpan>()(ParentSpa
  * externalSpan.spanId // => "span-abc-123"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -239,6 +248,7 @@ export interface ExternalSpan {
  * spans[0]?.status._tag // => "Ended"
  * ```
  *
+ * @stability stable
  * @category options
  * @since 3.1.0
  */
@@ -249,6 +259,7 @@ export interface SpanOptions extends SpanOptionsNoTrace, TraceOptions {}
  * attributes, links, parent or root selection, annotations, span kind,
  * sampling, and the trace level used for filtering.
  *
+ * @stability stable
  * @category options
  * @since 4.0.0
  */
@@ -267,6 +278,7 @@ export interface SpanOptionsNoTrace {
  * Options that control stack trace capture for tracing wrappers.
  * `captureStackTrace` can disable capture or provide a lazy stack string.
  *
+ * @stability stable
  * @category options
  * @since 4.0.0
  */
@@ -303,6 +315,7 @@ export interface TraceOptions {
  * spans[0]?.kind // => "server"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 3.1.0
  */
@@ -365,6 +378,7 @@ export type SpanKind = "internal" | "server" | "client" | "producer" | "consumer
  * events // => [["loaded", 1_250_000_000n, { "cache.hit": true }]]
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -424,6 +438,7 @@ export interface Span {
  * spans[0]?.links[0]?.attributes["link.type"] // => "follows-from"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -448,6 +463,7 @@ export interface SpanLink {
  *
  * @see {@link Span} for the span values returned by tracer implementations
  *
+ * @stability stable
  * @category constructors
  * @since 2.0.0
  */
@@ -489,6 +505,7 @@ export const make = (options: Tracer): Tracer => options
  * spans.map((span) => Option.getOrUndefined(span.parent)?.spanId) // => ["span-abc-123"]
  * ```
  *
+ * @stability stable
  * @category constructors
  * @since 2.0.0
  */
@@ -533,6 +550,7 @@ export const externalSpan = (
  * await Effect.runPromise(program) // => true
  * ```
  *
+ * @stability stable
  * @category services
  * @since 3.12.0
  */
@@ -556,6 +574,7 @@ export const DisablePropagation = Context.Reference<boolean>(
  *
  * @see {@link MinimumTraceLevel} for the threshold that decides whether spans at that level are sampled
  *
+ * @stability stable
  * @category services
  * @since 4.0.0
  */
@@ -585,6 +604,7 @@ export const CurrentTraceLevel: Context.Reference<LogLevel> = Context.Reference<
  *
  * @see {@link CurrentTraceLevel} for the default span level used when options do not specify one
  *
+ * @stability stable
  * @category services
  * @since 4.0.0
  */
@@ -600,6 +620,7 @@ export const MinimumTraceLevel = Context.Reference<
  * Use when you need the raw context key for active tracer lookup in lower-level
  * tracing code.
  *
+ * @stability stable
  * @category constants
  * @since 4.0.0
  */
@@ -625,15 +646,31 @@ export const TracerKey = "effect/Tracer"
  * await Effect.runPromise(program) // => true
  * ```
  *
+ * @stability stable
  * @category services
  * @since 2.0.0
  */
 export const Tracer: Context.Reference<Tracer> = Context.Reference<Tracer>(TracerKey, {
   fiberCached: true,
-  defaultValue: () =>
-    make({
-      span: (options) => new NativeSpan(options)
-    })
+  defaultValue: () => nativeTracer
+})
+
+/**
+ * The default `Tracer` implementation backing the `Tracer` reference. It
+ * creates in-memory `NativeSpan` instances and does not export them anywhere.
+ *
+ * **Details**
+ *
+ * Runtime code can compare the active tracer against `nativeTracer` to detect
+ * that no tracing backend is installed and skip work that only a backend could
+ * observe, such as recording span attributes.
+ *
+ * @stability stable
+ * @category references
+ * @since 4.0.0
+ */
+export const nativeTracer: Tracer = make({
+  span: (options) => new NativeSpan(options)
 })
 
 /**
@@ -643,19 +680,20 @@ export const Tracer: Context.Reference<Tracer> = Context.Reference<Tracer>(Trace
  *
  * **Details**
  *
- * The constructor initializes the span with `Started` status, inherits the
- * parent trace id or generates a new one, and always generates a new span id.
- * Attributes, events, links, and status are then mutated through `Span` methods.
+ * The constructor initializes the span with `Started` status. Trace and span
+ * identifiers, the attribute map, and the event list are created lazily on
+ * first access, so spans that are never inspected allocate as little as
+ * possible. Attributes, events, links, and status are mutated through `Span`
+ * methods.
  *
  * @see {@link Span} for the interface implemented by native spans
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
 export class NativeSpan implements Span {
   readonly _tag = "Span"
-  readonly spanId: string
-  readonly traceId: string = "native"
   readonly sampled: boolean
 
   readonly name: string
@@ -666,8 +704,10 @@ export class NativeSpan implements Span {
   readonly kind: SpanKind
 
   status: SpanStatus
-  attributes: Map<string, unknown>
-  events: Array<[name: string, startTime: bigint, attributes: Record<string, unknown>]> = []
+  _traceId: string | undefined = undefined
+  _spanId: string | undefined = undefined
+  _attributes: Map<string, unknown> | undefined = undefined
+  _events: Array<[name: string, startTime: bigint, attributes: Record<string, unknown>]> | undefined = undefined
 
   constructor(options: {
     readonly name: string
@@ -689,9 +729,22 @@ export class NativeSpan implements Span {
       _tag: "Started",
       startTime: options.startTime
     }
-    this.attributes = new Map()
-    this.traceId = Option.getOrUndefined(options.parent)?.traceId ?? randomHexString(32)
-    this.spanId = randomHexString(16)
+  }
+
+  get traceId(): string {
+    return this._traceId ??= Option.getOrUndefined(this.parent)?.traceId ?? Hex.random(32)
+  }
+
+  get spanId(): string {
+    return this._spanId ??= Hex.random(16)
+  }
+
+  get attributes(): Map<string, unknown> {
+    return this._attributes ??= new Map()
+  }
+
+  get events(): Array<[name: string, startTime: bigint, attributes: Record<string, unknown>]> {
+    return this._events ??= []
   }
 
   end(endTime: bigint, exit: Exit.Exit<unknown, unknown>): void {
@@ -716,15 +769,3 @@ export class NativeSpan implements Span {
     this.links.push(...links)
   }
 }
-
-const randomHexString = (function() {
-  const characters = "abcdef0123456789"
-  const charactersLength = characters.length
-  return function(length: number) {
-    let result = ""
-    for (let i = 0; i < length; i++) {
-      result += characters.charAt(Math.floor(Math.random() * charactersLength))
-    }
-    return result
-  }
-})()

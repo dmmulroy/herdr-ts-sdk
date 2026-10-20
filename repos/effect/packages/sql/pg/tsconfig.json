@@ -4,6 +4,9 @@
   "include": ["src"],
   "references": [
     { "path": "../../effect" },
-    { "path": "../../platform-node-shared" }
-  ]
+    { "path": "../../platform/node-shared" }
+  ],
+  "compilerOptions": {
+    "types": ["node"]
+  }
 }

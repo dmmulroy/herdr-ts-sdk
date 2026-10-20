@@ -1,11 +1,23 @@
+import type { D1Result } from "@cloudflare/workers-types"
 import { D1Client } from "@effect/sql-d1"
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, Effect } from "effect"
-import * as Reactivity from "effect/unstable/reactivity/Reactivity"
-import { Statement } from "effect/unstable/sql"
+import { Cause, Effect, Tracer } from "effect"
+import * as Reactivity from "effect/reactivity/Reactivity"
+import { Statement } from "effect/sql"
 import { D1Miniflare } from "./utils.ts"
 
 describe("Client", () => {
+  it.effect("raw preserves the native result envelope", () =>
+    Effect.gen(function*() {
+      const sql = yield* D1Client.D1Client
+      yield* sql`CREATE TABLE raw_test (id INTEGER PRIMARY KEY, name TEXT)`
+      const raw = (yield* sql`INSERT INTO raw_test (name) VALUES (${"effect"})`.raw) as D1Result
+      assert.strictEqual(raw.success, true)
+      assert.deepStrictEqual(raw.results, [])
+      assert.strictEqual(raw.meta.changes, 1)
+      assert.strictEqual(raw.meta.last_row_id, 1)
+    }).pipe(Effect.provide(D1Miniflare.layerClient)))
+
   it.effect("classifies native errors without stable sqlite codes as UnknownError", () =>
     Effect.gen(function*() {
       const failingDb = {
@@ -194,6 +206,28 @@ describe("Client", () => {
       assert.deepStrictEqual(rows, [])
       assert.equal(Cause.hasDies(res), true)
     }).pipe(Effect.provide(D1Miniflare.layerClient)))
+
+  it.effect("names batches with the configured target", () =>
+    Effect.gen(function*() {
+      const db = {
+        prepare: () => ({ bind: () => ({}) }),
+        batch: async (statements: Array<unknown>) => statements.map(() => ({ results: [] }))
+      } as any
+      const sql = yield* D1Client.make({ db, spanAttributes: { "db.namespace": "app" } })
+      const spans: Array<Tracer.Span> = []
+      const tracer = Tracer.make({
+        span: (options) => {
+          const span = new Tracer.NativeSpan(options)
+          spans.push(span)
+          return span
+        }
+      })
+      yield* sql.batch([sql`SELECT 1`, sql`SELECT 2`]).pipe(Effect.withTracer(tracer))
+      assert.deepStrictEqual(spans.map((span) => span.name), ["BATCH app"])
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(Reactivity.layer)
+    ))
 
   it.effect("should defect when batching in a transaction", () =>
     Effect.gen(function*() {
