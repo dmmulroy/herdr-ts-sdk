@@ -16,7 +16,7 @@ This project vendors external repositories under @repos/ for coding-agent refere
 
 Vendored repositories currently available:
 
-- @repos/effect/ — https://github.com/Effect-TS/effect.git (effect@4.0.0-beta.105)
+- @repos/effect/ — https://github.com/Effect-TS/effect.git (effect@4.0.5)
 
 When working with a related library, inspect its vendored repository for idiomatic usage, tests, module structure, API design, examples, and docs. If the vendored repository contains agent-oriented guidance such as LLMS.md, AGENTS.md, or AGENT.md, read that guidance before making changes.
 
