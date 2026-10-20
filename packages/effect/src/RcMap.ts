@@ -9,6 +9,7 @@
  * lifecycles such as clients, sessions, and connections, not as a general
  * mutable cache.
  *
+ * @stability stable
  * @since 3.5.0
  */
 import * as Cause from "./Cause.ts"
@@ -21,6 +22,7 @@ import * as Exit from "./Exit.ts"
 import * as Fiber from "./Fiber.ts"
 import { constant, dual, flow } from "./Function.ts"
 import * as MutableHashMap from "./MutableHashMap.ts"
+import type * as Option from "./Option.ts"
 import type { Pipeable } from "./Pipeable.ts"
 import { pipeArguments } from "./Pipeable.ts"
 import * as Scope from "./Scope.ts"
@@ -66,6 +68,7 @@ const TypeId = "~effect/RcMap"
  * @see {@link make} for creating an `RcMap`
  * @see {@link get} for acquiring or retaining a resource by key
  *
+ * @stability stable
  * @category models
  * @since 3.5.0
  */
@@ -92,6 +95,7 @@ export interface RcMap<in out K, in out A, in out E = never> extends Pipeable {
  * @see {@link State.Open} for the active state with entries
  * @see {@link State.Closed} for the shutdown state
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -105,6 +109,7 @@ export type State<K, A, E> = State.Open<K, A, E> | State.Closed
  * Use when referring to the concrete open, closed, and entry state shapes used
  * by `RcMap`.
  *
+ * @stability stable
  * @since 4.0.0
  */
 export declare namespace State {
@@ -233,6 +238,7 @@ const makeUnsafe = <K, A, E>(options: {
  * @see {@link get} for acquiring or retaining a resource by key
  * @see {@link invalidate} for removing a resource from the map
  *
+ * @stability stable
  * @category constructors
  * @since 3.5.0
  */
@@ -273,7 +279,7 @@ export const make: {
         self.state = { _tag: "Closed" }
         return Effect.forEach(
           map,
-          ([, entry]) => Effect.exit(Scope.close(entry.scope, Exit.void))
+          ([, entry]) => Effect.exit(closeEntry(entry))
         ).pipe(
           Effect.tap(() =>
             Effect.sync(() => {
@@ -328,6 +334,7 @@ export const make: {
  * @see {@link make} for creating the reference-counted map
  * @see {@link invalidate} for removing a resource by key
  *
+ * @stability stable
  * @category combinators
  * @since 3.5.0
  */
@@ -369,10 +376,16 @@ export const get: {
           context.set(key, value)
         })
         context.set(Scope.Scope.key, entry.scope)
-        self.lookup(key).pipe(
-          Effect.runForkWith(Context.makeUnsafe(context)),
+        const lookupContext: Context.Context<Scope.Scope> = Context.makeUnsafe(context)
+        Effect.suspend(() => self.lookup(key)).pipe(
+          Effect.runForkWith(lookupContext),
           Fiber.runIn(entry.scope)
-        ).addObserver((exit) => Deferred.doneUnsafe(entry.deferred, exit))
+        ).addObserver((exit) => {
+          // Interruption is abandonment, so the entry is dropped and the next
+          // get starts a fresh lookup.
+          if (Exit.hasInterrupts(exit)) removeInterrupted(self, key, entry, lookupContext)
+          Deferred.doneUnsafe(entry.deferred, exit)
+        })
       }
       const scope = Context.getUnsafe(parent.context, Scope.Scope)
       return Scope.addFinalizer(scope, entry.finalizer).pipe(
@@ -381,20 +394,112 @@ export const get: {
     })
 )
 
+/**
+ * Retains and returns an existing resource without invoking the map's lookup
+ * function when the key is missing.
+ *
+ * **When to use**
+ *
+ * Use when you only want to acquire a reference to a resource that is currently
+ * cached.
+ *
+ * **Details**
+ *
+ * Returns `Option.none` when the key is not currently stored or the map is
+ * closed. If an entry exists, its reference count is incremented for the current
+ * `Scope` before awaiting its result. A successful entry returns
+ * `Option.some(value)`, while an in-flight or cached failure fails with the same
+ * error as `get`.
+ *
+ * **Example** (Retaining only cached resources)
+ *
+ * ```ts import.meta.vitest
+ * import { Effect, Option, RcMap } from "effect"
+ *
+ * const program = Effect.gen(function*() {
+ *   const map = yield* RcMap.make({
+ *     lookup: (key: string) => Effect.succeed(`Resource: ${key}`),
+ *     idleTimeToLive: "1 minute"
+ *   })
+ *
+ *   const missing = yield* RcMap.getOption(map, "database")
+ *   yield* Effect.scoped(RcMap.get(map, "database"))
+ *   const cached = yield* Effect.scoped(RcMap.getOption("database")(map))
+ *
+ *   return [missing, cached] as const
+ * })
+ *
+ * await Effect.runPromise(Effect.scoped(program)) // => [Option.none(), Option.some("Resource: database")]
+ * ```
+ *
+ * @see {@link get} for acquiring a resource when the key is missing
+ * @see {@link has} for checking presence without retaining or awaiting the entry
+ *
+ * @stability stable
+ * @category combinators
+ * @since 4.0.0
+ */
+export const getOption: {
+  <K>(key: K): <A, E>(self: RcMap<K, A, E>) => Effect.Effect<Option.Option<A>, E, Scope.Scope>
+  <K, A, E>(self: RcMap<K, A, E>, key: K): Effect.Effect<Option.Option<A>, E, Scope.Scope>
+} = dual(
+  2,
+  <K, A, E>(self: RcMap<K, A, E>, key: K): Effect.Effect<Option.Option<A>, E, Scope.Scope> =>
+    Effect.uninterruptibleMask((restore) => {
+      if (self.state._tag === "Closed") {
+        return Effect.succeedNone
+      }
+      const o = MutableHashMap.get(self.state.map, key)
+      if (o._tag === "None") {
+        return Effect.succeedNone
+      }
+      const entry = o.value
+      entry.refCount++
+      const scope = Context.getUnsafe(Fiber.getCurrent()!.context, Scope.Scope)
+      return Scope.addFinalizer(scope, entry.finalizer).pipe(
+        Effect.andThen(Effect.asSome(restore(Deferred.await(entry.deferred))))
+      )
+    })
+)
+
+const removeInterrupted = <K, A, E>(
+  self: RcMap<K, A, E>,
+  key: K,
+  entry: State.Entry<A, E>,
+  context: Context.Context<Scope.Scope>
+) => {
+  if (self.state._tag === "Closed") return
+  const o = MutableHashMap.get(self.state.map, key)
+  if (o._tag === "None" || o.value !== entry) return
+  MutableHashMap.remove(self.state.map, key)
+  // Borrowers close the entry on release; an idle entry has none left.
+  if (entry.refCount > 0) return
+  closeEntry(entry).pipe(
+    Effect.runForkWith(context),
+    Fiber.runIn(self.scope)
+  )
+}
+
+const closeEntry = <A, E>(entry: State.Entry<A, E>) =>
+  entry.fiber
+    ? Fiber.interrupt(entry.fiber).pipe(Effect.andThen(Scope.close(entry.scope, Exit.void)))
+    : Scope.close(entry.scope, Exit.void)
+
 const release = <K, A, E>(self: RcMap<K, A, E>, key: K, entry: State.Entry<A, E>) =>
   Effect.withFiber((fiber) => {
     entry.refCount--
     if (entry.refCount > 0) {
       return Effect.void
-    } else if (
-      self.state._tag === "Closed"
-      || !MutableHashMap.has(self.state.map, key)
-      || Duration.isZero(entry.idleTimeToLive)
-    ) {
-      if (self.state._tag === "Open") {
-        MutableHashMap.remove(self.state.map, key)
-      }
-      return Scope.close(entry.scope, Exit.void)
+    } else if (self.state._tag === "Closed") {
+      return closeEntry(entry)
+    }
+
+    const o = MutableHashMap.get(self.state.map, key)
+    if (o._tag === "None" || o.value !== entry) {
+      return closeEntry(entry)
+    } else if (Duration.isZero(entry.idleTimeToLive)) {
+      MutableHashMap.remove(self.state.map, key)
+      return closeEntry(entry)
     } else if (!Duration.isFinite(entry.idleTimeToLive)) {
       return Effect.void
     }
@@ -403,15 +508,17 @@ const release = <K, A, E>(self: RcMap<K, A, E>, key: K, entry: State.Entry<A, E>
     entry.expiresAt = clock.currentTimeMillisUnsafe() + Duration.toMillis(entry.idleTimeToLive)
     if (entry.fiber) return Effect.void
 
-    entry.fiber = Effect.interruptibleMask(function loop(restore): Effect.Effect<void> {
+    entry.fiber = Effect.uninterruptibleMask(function loop(restore): Effect.Effect<void> {
       const now = clock.currentTimeMillisUnsafe()
       const remaining = entry.expiresAt - now
       if (remaining <= 0) {
         if (self.state._tag === "Closed" || entry.refCount > 0) return Effect.void
+        const o = MutableHashMap.get(self.state.map, key)
+        if (o._tag === "None" || o.value !== entry) return Effect.void
         MutableHashMap.remove(self.state.map, key)
-        return restore(Scope.close(entry.scope, Exit.void))
+        return Scope.close(entry.scope, Exit.void)
       }
-      return Effect.flatMap(clock.sleep(Duration.millis(remaining)), () => loop(restore))
+      return Effect.flatMap(restore(clock.sleep(Duration.millis(remaining))), () => loop(restore))
     }).pipe(
       Effect.ensuring(Effect.sync(() => {
         entry.fiber = undefined
@@ -458,6 +565,7 @@ const release = <K, A, E>(self: RcMap<K, A, E>, key: K, entry: State.Entry<A, E>
  *
  * @see {@link has} for checking one key without enumerating all keys
  *
+ * @stability stable
  * @category combinators
  * @since 3.8.0
  */
@@ -509,6 +617,7 @@ export const keys = <K, A, E>(self: RcMap<K, A, E>): Effect.Effect<Iterable<K>> 
  * @see {@link get} for acquiring or retaining the resource for a key
  * @see {@link touch} for extending the idle lifetime without removing the entry
  *
+ * @stability stable
  * @category combinators
  * @since 3.13.0
  */
@@ -524,8 +633,7 @@ export const invalidate: {
     const entry = o.value
     MutableHashMap.remove(self.state.map, key)
     if (entry.refCount > 0) return
-    if (entry.fiber) yield* Fiber.interrupt(entry.fiber)
-    yield* Scope.close(entry.scope, Exit.void)
+    yield* closeEntry(entry)
   }, Effect.uninterruptible)
 )
 
@@ -550,6 +658,7 @@ export const invalidate: {
  * @see {@link get} for acquiring or retaining the resource for a key
  * @see {@link keys} for enumerating all currently stored keys
  *
+ * @stability stable
  * @category combinators
  * @since 3.17.7
  */
@@ -608,6 +717,7 @@ export const has: {
  *
  * @see {@link invalidate} for removing the resource instead of extending it
  *
+ * @stability stable
  * @category combinators
  * @since 3.13.0
  */

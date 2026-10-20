@@ -7,17 +7,19 @@
  * can create rings, add or remove nodes by `PrimaryKey`, route an input string
  * to a node, and compute shard assignments.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 import { dual } from "./Function.ts"
 import * as Hash from "./Hash.ts"
 import { PipeInspectableProto } from "./internal/core.ts"
+import * as Count from "./internal/count.ts"
 import * as Iterable from "./Iterable.ts"
 import type { Pipeable } from "./Pipeable.ts"
 import { hasProperty } from "./Predicate.ts"
 import * as PrimaryKey from "./PrimaryKey.ts"
 
-const TypeId = "~effect/cluster/HashRing" as const
+const TypeId = "~effect/HashRing" as const
 
 /**
  * A weighted consistent-hashing ring for assigning inputs to nodes with stable
@@ -33,6 +35,7 @@ const TypeId = "~effect/cluster/HashRing" as const
  * Nodes are identified by their `PrimaryKey` value and can be iterated from the
  * ring.
  *
+ * @stability unstable
  * @category models
  * @since 3.19.0
  */
@@ -65,6 +68,7 @@ export interface HashRing<A extends PrimaryKey.PrimaryKey> extends Pipeable, Ite
  * @see {@link HashRing} for the type narrowed by this guard
  * @see {@link make} for creating an empty `HashRing`
  *
+ * @stability unstable
  * @category guards
  * @since 3.19.0
  */
@@ -86,6 +90,7 @@ export const isHashRing = (u: unknown): u is HashRing<any> => hasProperty(u, Typ
  * @see {@link add} for registering one node after creation
  * @see {@link addMany} for registering several nodes after creation
  *
+ * @stability unstable
  * @category constructors
  * @since 3.19.0
  */
@@ -123,6 +128,7 @@ const Proto = {
  *
  * Use to register or update several nodes in a `HashRing` at the same weight.
  *
+ * @stability unstable
  * @category combinators
  * @since 3.19.0
  */
@@ -149,12 +155,9 @@ export const addMany: {
         if (entry[1] === weight) continue
         toRemove ??= new Set()
         toRemove.add(key)
-        self.totalWeightCache -= entry[1]
-        self.totalWeightCache += weight
         entry[1] = weight
       } else {
         self.nodes.set(key, [node, weight])
-        self.totalWeightCache += weight
       }
       keys.push(key)
     }
@@ -162,6 +165,7 @@ export const addMany: {
       self.ring = self.ring.filter(([, n]) => !toRemove.has(n))
     }
     addNodesToRing(self, keys, Math.round(weight * self.baseWeight))
+    updateTotalWeight(self)
     return self
   }
 )
@@ -176,7 +180,18 @@ function addNodesToRing<A extends PrimaryKey.PrimaryKey>(self: HashRing<A>, keys
       ])
     }
   }
-  self.ring.sort((a, b) => a[0] - b[0])
+  // Break hash ties by node key to avoid insertion-order dependence.
+  self.ring.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0))
+}
+
+// Sum in key order to avoid history-dependent floating-point rounding.
+function updateTotalWeight<A extends PrimaryKey.PrimaryKey>(self: HashRing<A>) {
+  const keys = Array.from(self.nodes.keys()).sort()
+  let total = 0
+  for (let i = 0; i < keys.length; i++) {
+    total += self.nodes.get(keys[i])![1]
+  }
+  self.totalWeightCache = total
 }
 
 /**
@@ -201,6 +216,7 @@ function addNodesToRing<A extends PrimaryKey.PrimaryKey>(self: HashRing<A>, keys
  * @see {@link remove} for unregistering a node
  * @see {@link has} for checking primary-key membership
  *
+ * @stability unstable
  * @category combinators
  * @since 3.19.0
  */
@@ -235,6 +251,7 @@ export const add: {
  * @see {@link add} for registering or updating a node
  * @see {@link has} for checking membership by primary key
  *
+ * @stability unstable
  * @category combinators
  * @since 3.19.0
  */
@@ -247,7 +264,7 @@ export const remove: {
   if (entry) {
     self.nodes.delete(key)
     self.ring = self.ring.filter(([, n]) => n !== key)
-    self.totalWeightCache -= entry[1]
+    updateTotalWeight(self)
   }
   return self
 })
@@ -269,6 +286,7 @@ export const remove: {
  * @see {@link remove} for removing nodes by the same primary-key identity
  * @see {@link get} for routing an input string to a node
  *
+ * @stability unstable
  * @category combinators
  * @since 3.19.0
  */
@@ -292,6 +310,7 @@ export const has: {
  * @see {@link getShards} for assigning fixed shard indexes instead of routing
  * one input string at a time
  *
+ * @stability unstable
  * @category combinators
  * @since 3.19.0
  */
@@ -312,6 +331,12 @@ export const get = <A extends PrimaryKey.PrimaryKey>(self: HashRing<A>, input: s
  * Use to precompute ownership for a fixed number of shard indexes across the
  * current ring members.
  *
+ * **Details**
+ *
+ * Finite fractional values of `count` are rounded down. `NaN` and non-positive
+ * values produce an empty shard distribution.
+ *
+ * @stability unstable
  * @category combinators
  * @since 3.19.0
  */
@@ -319,6 +344,7 @@ export const getShards = <A extends PrimaryKey.PrimaryKey>(self: HashRing<A>, co
   if (self.ring.length === 0) {
     return undefined
   }
+  count = Count.normalize(count)
 
   const shards = new Array<A>(count)
 
@@ -413,7 +439,7 @@ function getIndexForInput<A extends PrimaryKey.PrimaryKey>(
     return [a, distA]
   }
   const range = Math.max(lo, len - lo)
-  for (let i = 1; i < range; i++) {
+  for (let i = 1; i <= range; i++) {
     let index = lo - i
     if (index >= 0 && index < len && !exclude.has(ring[index][1])) {
       return [index, Math.abs(ring[index][0] - hash)]

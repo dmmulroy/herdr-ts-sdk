@@ -6,6 +6,7 @@
  * object shapes, tagged unions, reason-tagged errors, mutability, exactness,
  * required keys, concurrency settings, and variance markers.
  *
+ * @stability stable
  * @since 4.0.0
  */
 
@@ -14,8 +15,9 @@
  * @since 2.0.0
  */
 type TupleOf_<T, N extends number, R extends Array<unknown>> = `${N}` extends `-${number}` ? never
-  : R["length"] extends N ? R
-  : TupleOf_<T, N, [T, ...R]>
+  : `${N}` extends `${bigint}` ? R["length"] extends N ? R
+    : TupleOf_<T, N, [T, ...R]>
+  : Array<T>
 
 /**
  * Constructs a tuple type with exactly `N` elements of type `T`.
@@ -27,8 +29,9 @@ type TupleOf_<T, N extends number, R extends Array<unknown>> = `${N}` extends `-
  *
  * **Details**
  *
- * - If `N` is a literal number, produces a tuple of that exact length.
+ * - If `N` is a non-negative integer literal, produces a tuple of that exact length.
  * - If `N` is the general `number` type (non-literal), degrades to `Array<T>`.
+ * - Positive non-integer literals degrade to `Array<T>`.
  * - Negative numbers produce `never`.
  *
  * **Example** (Checking fixed-length tuples)
@@ -48,6 +51,7 @@ type TupleOf_<T, N extends number, R extends Array<unknown>> = `${N}` extends `-
  *
  * @see {@link TupleOfAtLeast}
  *
+ * @stability stable
  * @category utility types
  * @since 3.3.0
  */
@@ -81,6 +85,7 @@ export type TupleOf<N extends number, T> = N extends N ? number extends N ? Arra
  *
  * @see {@link TupleOf}
  *
+ * @stability stable
  * @category utility types
  * @since 3.3.0
  */
@@ -116,6 +121,7 @@ export type TupleOfAtLeast<N extends number, T> = [...TupleOf<N, T>, ...Array<T>
  * @see {@link ExtractTag}
  * @see {@link ExcludeTag}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -152,6 +158,7 @@ export type Tags<E> = E extends { readonly _tag: string } ? E["_tag"] : never
  * @see {@link ExtractTag}
  * @see {@link Tags}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -187,6 +194,7 @@ export type ExcludeTag<E, K extends string> = Exclude<E, { readonly _tag: K }>
  * @see {@link ExcludeTag}
  * @see {@link Tags}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -221,6 +229,7 @@ export type ExtractTag<E, K extends string> = E extends { readonly _tag: infer T
  *
  * @see {@link IsUnion}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -254,6 +263,7 @@ export type UnionToIntersection<T> = (T extends any ? (x: T) => any : never) ext
  * @see {@link MergeLeft}
  * @see {@link MergeRight}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -286,6 +296,7 @@ export type Simplify<A> = {
  *
  * @see {@link EqualsWith}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -316,6 +327,7 @@ export type Equals<X, Y> = (<T>() => T extends X ? 1 : 2) extends <
  *
  * @see {@link Equals}
  *
+ * @stability stable
  * @category utility types
  * @since 3.15.0
  */
@@ -343,6 +355,7 @@ export type EqualsWith<A, B, Y, N> = (<T>() => T extends A ? 1 : 2) extends (<T>
  * type No = Types.Has<{ a: number }, "b" | "c"> // false
  * ```
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -379,6 +392,7 @@ export type Has<A, Key extends string> = (Key extends infer K ? K extends keyof 
  * @see {@link MergeRight}
  * @see {@link Simplify}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -413,6 +427,7 @@ export type MergeLeft<Source, Target> = MergeRight<Target, Source>
  * @see {@link MergeLeft}
  * @see {@link Simplify}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -446,6 +461,7 @@ export type MergeRight<Target, Source> = Simplify<
  * const unbounded: Types.Concurrency = "unbounded"
  * ```
  *
+ * @stability stable
  * @category models
  * @since 2.0.0
  */
@@ -487,6 +503,7 @@ export type Concurrency = number | "unbounded"
  *
  * @see {@link DeepMutable}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -494,42 +511,56 @@ export type Mutable<T> = {
   -readonly [P in keyof T]: T[P]
 }
 
+type DeepMutableIsOpaque<T> = Extract<keyof T, symbol> extends never
+  ? Extract<T[keyof T], Function> extends never ? false : true
+  : true
+
 /**
- * Recursively removes `readonly` from all properties, including nested
- * objects, arrays, `Map`, and `Set`.
+ * Recursively removes `readonly` from plain objects, arrays, tuples, `Map`,
+ * and `Set` while preserving opaque objects.
  *
  * **When to use**
  *
- * Use when you need a fully mutable version of a deeply readonly type.
+ * Use when you need a fully mutable version of deeply readonly structural
+ * data.
  *
  * **Details**
  *
- * Recursion stops at primitives (`string`, `number`, `boolean`, `bigint`,
- * `symbol`) and functions.
+ * Recursion stops at primitives, functions, objects with methods, and objects
+ * with symbol-keyed properties. This preserves built-in objects and Effect
+ * data types while still transforming their surrounding arrays and records.
  *
  * **Example** (Converting deeply to mutable types)
  *
  * ```ts import.meta.vitest
- * import type { Types } from "effect"
+ * import { DateTime, type Types } from "effect"
  *
  * type Deep = Types.DeepMutable<{
  *   readonly a: string
  *   readonly b: ReadonlyArray<{ readonly c: number }>
+ *   readonly createdAt: DateTime.DateTime
  * }>
- * // { a: string; b: Array<{ c: number }> }
+ * // { a: string; b: Array<{ c: number }>; createdAt: DateTime.DateTime }
  *
- * const witness: Deep = { a: "value", b: [{ c: 1 }] }
+ * const witness: Deep = {
+ *   a: "value",
+ *   b: [{ c: 1 }],
+ *   createdAt: DateTime.makeUnsafe(0)
+ * }
  * witness.b[0].c = 2
  * ```
  *
  * @see {@link Mutable}
  *
+ * @stability stable
  * @category utility types
  * @since 3.1.0
  */
 export type DeepMutable<T> = T extends ReadonlyMap<infer K, infer V> ? Map<DeepMutable<K>, DeepMutable<V>>
   : T extends ReadonlySet<infer V> ? Set<DeepMutable<V>>
+  : T extends ReadonlyArray<unknown> ? { -readonly [K in keyof T]: DeepMutable<T[K]> }
   : T extends string | number | boolean | bigint | symbol | Function ? T
+  : DeepMutableIsOpaque<T> extends true ? T
   : { -readonly [K in keyof T]: DeepMutable<T[K]> }
 
 /**
@@ -558,6 +589,7 @@ export type DeepMutable<T> = T extends ReadonlyMap<infer K, infer V> ? Map<DeepM
  * const result = withDefault<"a" | "b">("a", "b")
  * ```
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -594,6 +626,7 @@ export type NoInfer<A> = [A][A extends any ? 0 : never]
  * @see {@link Covariant}
  * @see {@link Contravariant}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -606,6 +639,7 @@ export type Invariant<A> = (_: A) => A
  *
  * Use when referring to type-level helpers nested under `Invariant`.
  *
+ * @stability stable
  * @since 3.9.0
  */
 export declare namespace Invariant {
@@ -666,6 +700,7 @@ export declare namespace Invariant {
  * @see {@link Contravariant}
  * @see {@link Invariant}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -678,6 +713,7 @@ export type Covariant<A> = (_: never) => A
  *
  * Use when referring to type-level helpers nested under `Covariant`.
  *
+ * @stability stable
  * @since 3.9.0
  */
 export declare namespace Covariant {
@@ -741,6 +777,7 @@ export declare namespace Covariant {
  * @see {@link Covariant}
  * @see {@link Invariant}
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -753,6 +790,7 @@ export type Contravariant<A> = (_: A) => void
  *
  * Use when referring to type-level helpers nested under `Contravariant`.
  *
+ * @stability stable
  * @since 3.9.0
  */
 export declare namespace Contravariant {
@@ -790,6 +828,7 @@ export declare namespace Contravariant {
  *
  * Use to erase an empty object type from an API result or parameter position.
  *
+ * @stability stable
  * @category utility types
  * @since 3.19.20
  */
@@ -817,6 +856,7 @@ export type VoidIfEmpty<S> = keyof S extends never ? void : S
  * const witness: Result = "value"
  * ```
  *
+ * @stability stable
  * @category utility types
  * @since 2.0.0
  */
@@ -847,6 +887,7 @@ export type NotFunction<T> = T extends Function ? never : T
  * const accepted: Types.NoExcessProperties<Expected, Expected> = { a: 1, b: "value" }
  * ```
  *
+ * @stability stable
  * @category utility types
  * @since 3.9.0
  */
@@ -867,6 +908,7 @@ export type NoExcessProperties<T, U> = T & Readonly<Record<Exclude<keyof U, keyo
  *
  * @see {@link unhandled}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -889,6 +931,7 @@ export interface unassigned {
  *
  * @see {@link unassigned}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -921,6 +964,7 @@ export interface unhandled {
  *
  * @see {@link UnionToIntersection}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -957,6 +1001,7 @@ export type IsUnion<T> = [T] extends [UnionToIntersection<T>] ? false : true
  * @see {@link ExtractReason}
  * @see {@link ExcludeReason}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -993,6 +1038,7 @@ export type ReasonOf<E> = E extends { readonly reason: infer R } ? R : never
  * @see {@link ReasonOf}
  * @see {@link ExtractReason}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -1031,6 +1077,7 @@ export type ReasonTags<E> = E extends { readonly reason: { readonly _tag: string
  * @see {@link ReasonOf}
  * @see {@link ReasonTags}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -1074,6 +1121,7 @@ export type ExtractReason<E, K extends string> = E extends { readonly reason: in
  * @see {@link ReasonOf}
  * @see {@link ReasonTags}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -1118,6 +1166,7 @@ export type NarrowReason<E, K extends string> = E extends { readonly reason: inf
  * @see {@link ReasonOf}
  * @see {@link ReasonTags}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -1158,6 +1207,7 @@ export type OmitReason<E, K extends string> = E extends { readonly reason: infer
  * @see {@link ReasonOf}
  * @see {@link ReasonTags}
  *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
@@ -1165,14 +1215,23 @@ export type ExcludeReason<E, K extends string> = E extends { readonly reason: in
   ? Exclude<R, { readonly _tag: K }>
   : never
 
+type RequiredKeysFrom_<T> = { [K in keyof T]-?: {} extends Pick<T, K> ? never : K }[keyof T]
+
+type IsIndexKey_<K> = string extends K ? true : number extends K ? true : symbol extends K ? true : false
+
+type WithoutIndexSignature_<T> = {
+  [K in keyof T as IsIndexKey_<K> extends true ? never : K]: T[K]
+}
+
 /**
- * Extracts the required keys from a type.
+ * Extracts the keys of required properties from a type.
  *
- * **When to use**
- *
- * Use to derive the keys whose properties must be present on an object type.
- *
+ * @stability stable
  * @category utility types
  * @since 4.0.0
  */
-export type RequiredKeys<T> = { [K in keyof T]-?: {} extends Pick<T, K> ? never : K }[keyof T]
+export type RequiredKeys<T> = RequiredKeysFrom_<
+  [T] extends [ReadonlyArray<unknown>] ? T
+    : IsIndexKey_<keyof T> extends true ? WithoutIndexSignature_<T>
+    : T
+>

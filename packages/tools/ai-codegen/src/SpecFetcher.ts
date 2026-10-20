@@ -7,9 +7,9 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as HttpClient from "effect/http/HttpClient"
 import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
-import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as Yaml from "yaml"
 import type { SpecSource } from "./Config.ts"
 
@@ -75,7 +75,7 @@ export const layer: Layer.Layer<
   FileSystem.FileSystem | HttpClient.HttpClient
 > = Effect.gen(function*() {
   const fs = yield* FileSystem.FileSystem
-  const httpClient = yield* HttpClient.HttpClient
+  const httpClient = HttpClient.filterStatusOk(yield* HttpClient.HttpClient)
 
   const fetchFromFile = Effect.fn("fetchFromFile")(function*(
     path: string,

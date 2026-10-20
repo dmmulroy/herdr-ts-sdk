@@ -7,6 +7,7 @@
  * wraps JSON formatting with redaction and circular-reference handling, and the
  * module also includes helpers for property keys, paths, and dates.
  *
+ * @stability stable
  * @since 4.0.0
  */
 import * as Predicate from "./Predicate.ts"
@@ -35,6 +36,7 @@ import { getRedacted, redact, symbolRedactable } from "./Redactable.ts"
  *
  * @see {@link format}
  * @see {@link formatJson}
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -57,6 +59,7 @@ export interface Formatter<in Value, out Format = string> {
  * - Handles `BigInt`, `Symbol`, `Set`, `Map`, `Date`, `RegExp`, and class
  *   instances that `JSON.stringify` cannot represent.
  * - Circular references are shown as `"[Circular]"` instead of throwing.
+ * - Failures while inspecting a value are rendered as diagnostic placeholders instead of throwing.
  * - Primitives: stringified naturally (`null`, `undefined`, `123`, `true`).
  *   Strings are JSON-quoted.
  * - Objects with a custom `toString` (not `Object.prototype.toString`):
@@ -101,6 +104,7 @@ export interface Formatter<in Value, out Format = string> {
  *
  * @see {@link formatJson}
  * @see {@link Formatter}
+ * @stability stable
  * @category formatting
  * @since 2.0.0
  */
@@ -127,32 +131,15 @@ export function format(input: unknown, options?: {
   }
 
   function recur(v: unknown, d = 0): string {
-    if (Array.isArray(v)) {
-      if (ancestors.has(v)) return CIRCULAR
-      ancestors.add(v)
-      const output = !gap || v.length <= 1
-        ? `[${v.map((x) => recur(x, d)).join(",")}]`
-        : `[\n${ind(d + 1)}${v.map((x) => recur(x, d + 1)).join(",\n" + ind(d + 1))}\n${ind(d)}]`
-      ancestors.delete(v)
-      return output
+    try {
+      return recurUnsafe(v, d)
+    } catch {
+      if ((typeof v === "object" && v !== null) || typeof v === "function") ancestors.delete(v)
+      return "[inspection threw]"
     }
+  }
 
-    if (v instanceof Date) return formatDate(v)
-
-    if (
-      !options?.ignoreToString &&
-      Predicate.hasProperty(v, "toString") &&
-      typeof v["toString"] === "function" &&
-      v["toString"] !== Object.prototype.toString &&
-      v["toString"] !== Array.prototype.toString
-    ) {
-      const s = safeToString(v)
-      if (v instanceof Error && v.cause) {
-        return `${s} (cause: ${recur(v.cause, d)})`
-      }
-      return s
-    }
-
+  function recurUnsafe(v: unknown, d = 0): string {
     if (typeof v === "string") return JSON.stringify(v)
 
     if (
@@ -170,17 +157,32 @@ export function format(input: unknown, options?: {
 
       let output: string
       if (symbolRedactable in v) {
-        output = format(getRedacted(v as any))
+        output = recur(getRedacted(v as any), d)
+      } else if (Array.isArray(v)) {
+        output = !gap || v.length <= 1
+          ? `[${v.map((x) => recur(x, d)).join(",")}]`
+          : `[\n${ind(d + 1)}${v.map((x) => recur(x, d + 1)).join(",\n" + ind(d + 1))}\n${ind(d)}]`
+      } else if (v instanceof Date) {
+        output = formatDate(v)
+      } else if (
+        !options?.ignoreToString &&
+        Predicate.hasProperty(v, "toString") &&
+        typeof v["toString"] === "function" &&
+        v["toString"] !== Object.prototype.toString &&
+        v["toString"] !== Array.prototype.toString
+      ) {
+        const s = safeToString(v)
+        output = v instanceof Error && v.cause !== undefined ? `${s} (cause: ${recur(v.cause, d)})` : s
       } else if (Symbol.iterator in v) {
         output = `${v.constructor.name}(${recur(Array.from(v as any), d)})`
       } else {
         const keys = ownKeys(v)
         if (!gap || keys.length <= 1) {
-          const body = `{${keys.map((k) => `${formatPropertyKey(k)}:${recur((v as any)[k], d)}`).join(",")}}`
+          const body = `{${keys.map((k) => `${formatPropertyKey(k)}:${recur(safeGet(v, k), d)}`).join(",")}}`
           output = wrap(v, body)
         } else {
           const body = `{\n${
-            keys.map((k) => `${ind(d + 1)}${formatPropertyKey(k)}: ${recur((v as any)[k], d + 1)}`).join(",\n")
+            keys.map((k) => `${ind(d + 1)}${formatPropertyKey(k)}: ${recur(safeGet(v, k), d + 1)}`).join(",\n")
           }\n${ind(d)}}`
           output = wrap(v, body)
         }
@@ -236,6 +238,14 @@ function safeToString(input: any): string {
   }
 }
 
+function safeGet(input: object, key: PropertyKey): unknown {
+  try {
+    return (input as any)[key]
+  } catch {
+    return "[property access threw]"
+  }
+}
+
 /**
  * Stringifies a value to JSON safely, silently dropping circular references.
  *
@@ -250,9 +260,11 @@ function safeToString(input: any): string {
  * Uses `JSON.stringify` internally with a replacer that tracks the current
  * object ancestry. Circular references are replaced with `undefined`, which
  * omits them from object output. `Redactable` values are automatically redacted
- * before serialization. Values not supported by JSON otherwise follow standard
- * `JSON.stringify` behavior. The `space` parameter controls indentation and
- * defaults to `0`.
+ * before serialization. `BigInt` values are stringified with an `n` suffix.
+ * `Error` instances without a `toJSON` property include their enumerable
+ * properties plus `name` and `message`. Errors with `toJSON` keep their custom
+ * representation. Other values follow standard `JSON.stringify` behavior. The
+ * `space` parameter controls indentation and defaults to `0`.
  *
  * **Gotchas**
  *
@@ -289,6 +301,7 @@ function safeToString(input: any): string {
  *
  * @see {@link format}
  * @see {@link Formatter}
+ * @stability stable
  * @category serialization
  * @since 4.0.0
  */
@@ -298,11 +311,20 @@ export function formatJson(input: unknown, options?: {
   const ancestors: Array<object> = []
   return JSON.stringify(
     input,
-    function(this: unknown, _key: string, value: unknown) {
-      const redacted = redact(value)
+    function(this: object, key: string, value: unknown) {
+      const original = Object.getOwnPropertyDescriptor(this, key)?.value
+      const redacted = Predicate.hasProperty(original, symbolRedactable)
+        ? redact(original)
+        : redact(value)
+      if (typeof redacted === "bigint") {
+        return format(redacted)
+      }
       if (typeof redacted !== "object" || redacted === null) {
         return redacted
       }
+      const current = redacted instanceof Error && !Predicate.hasProperty(redacted, "toJSON")
+        ? { ...redacted, name: redacted.name, message: redacted.message }
+        : redacted
       while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) {
         ancestors.pop()
       }
@@ -310,8 +332,48 @@ export function formatJson(input: unknown, options?: {
         return undefined // circular reference
       }
       ancestors.push(redacted)
-      return redacted
+      if (current !== redacted) {
+        ancestors.push(current)
+      }
+      // Leave boxed primitives intact so JSON.stringify can unbox them natively.
+      if (!hasGetter(current) || isJsonPrimitiveWrapper(current)) {
+        return current
+      }
+      // JSON.stringify reads a getter once, then calls toJSON on the result
+      // before the replacer sees it. Intercept that read to redact the value
+      // first, instead of re-reading the getter in the replacer, which could
+      // repeat side effects or return a different value.
+      const serialized = new Proxy(current, {
+        get(target, key) {
+          const value = Reflect.get(target, key, target)
+          return Object.getOwnPropertyDescriptor(target, key)?.get !== undefined ? redact(value) : value
+        }
+      })
+      ancestors.push(serialized)
+      return serialized
     },
     options?.space
   ) ?? "null"
+}
+
+function hasGetter(object: object): boolean {
+  for (const key of Object.getOwnPropertyNames(object)) {
+    if (Object.getOwnPropertyDescriptor(object, key)?.get !== undefined) {
+      return true
+    }
+  }
+  return false
+}
+
+function isJsonPrimitiveWrapper(object: object): boolean {
+  // Built-in valueOf checks internal slots across realms without calling user code.
+  for (const valueOf of [Number.prototype.valueOf, Boolean.prototype.valueOf, String.prototype.valueOf]) {
+    try {
+      Reflect.apply(valueOf, object, [])
+      return true
+    } catch {
+      // Try the next wrapper type.
+    }
+  }
+  return false
 }

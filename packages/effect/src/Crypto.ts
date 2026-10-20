@@ -7,13 +7,17 @@
  * secure random bytes and numbers, UUIDv4 and UUIDv7 generation, shuffling, and
  * SHA message digests.
  *
+ * @stability unstable
  * @since 4.0.0
  */
 import * as Context from "./Context.ts"
 import * as Effect from "./Effect.ts"
+import * as random from "./internal/random.ts"
+import * as Ulid from "./internal/ulid.ts"
+import * as Uuid from "./internal/uuid.ts"
 import * as PlatformError from "./PlatformError.ts"
 
-const TypeId = "~effect/platform/Crypto"
+const TypeId = "~effect/Crypto"
 
 /**
  * Digest algorithms supported by the platform `Crypto` service.
@@ -31,6 +35,7 @@ const TypeId = "~effect/platform/Crypto"
  * const algorithm: Crypto.DigestAlgorithm = "SHA-256"
  * ```
  *
+ * @stability unstable
  * @category models
  * @since 4.0.0
  */
@@ -61,7 +66,7 @@ export type DigestAlgorithm = "SHA-1" | "SHA-256" | "SHA-384" | "SHA-512"
  * const program = Effect.gen(function*() {
  *   const crypto = yield* Crypto.Crypto
  *   const bytes = yield* crypto.randomBytes(16)
- *   const uuidv4 = yield* crypto.randomUUIDv4
+ *   const uuidv4 = yield* crypto.randomUUIDv4()
  *   const hash = yield* crypto.digest("SHA-256", bytes)
  *   return [bytes.length, uuidv4.length, hash.length]
  * })
@@ -69,6 +74,7 @@ export type DigestAlgorithm = "SHA-1" | "SHA-256" | "SHA-384" | "SHA-512"
  * await Effect.runPromise(Effect.provide(program, TestCrypto)) // => [16, 36, 16]
  * ```
  *
+ * @stability unstable
  * @category services
  * @since 4.0.0
  */
@@ -142,14 +148,57 @@ export interface Crypto {
   randomShuffle<A>(elements: Iterable<A>): Effect.Effect<Array<A>>
 
   /**
-   * Generates a cryptographically secure UUIDv4 string.
+   * Generates a cryptographically secure UUIDv4.
+   *
+   * **Details**
+   *
+   * The default `"hex"` format returns a lowercase, hyphenated UUID string
+   * (36 characters), not a bare hexadecimal string. The `"bytes"` format
+   * returns the 16 UUID bytes, including the version and variant bits.
    */
-  readonly randomUUIDv4: Effect.Effect<string, PlatformError.PlatformError>
+  randomUUIDv4(options?: {
+    readonly format?: "hex" | undefined
+  }): Effect.Effect<string, PlatformError.PlatformError>
+  randomUUIDv4<Format extends "hex" | "bytes">(options: {
+    readonly format: Format
+  }): Effect.Effect<Format extends "bytes" ? Uint8Array : string, PlatformError.PlatformError>
+  randomUUIDv4(options?: {
+    readonly format?: "hex" | "bytes" | undefined
+  }): Effect.Effect<string | Uint8Array, PlatformError.PlatformError>
 
   /**
-   * Generates a cryptographically secure UUIDv7 string.
+   * Generates a cryptographically secure UUIDv7 using the `Clock` timestamp.
+   *
+   * **Details**
+   *
+   * The default `"hex"` format returns a lowercase, hyphenated UUID string
+   * (36 characters), not a bare hexadecimal string. The `"bytes"` format
+   * returns the 16 UUID bytes, including the timestamp, version and variant bits.
    */
-  readonly randomUUIDv7: Effect.Effect<string, PlatformError.PlatformError>
+  randomUUIDv7(options?: {
+    readonly format?: "hex" | undefined
+  }): Effect.Effect<string, PlatformError.PlatformError>
+  randomUUIDv7<Format extends "hex" | "bytes">(options: {
+    readonly format: Format
+  }): Effect.Effect<Format extends "bytes" ? Uint8Array : string, PlatformError.PlatformError>
+  randomUUIDv7(options?: {
+    readonly format?: "hex" | "bytes" | undefined
+  }): Effect.Effect<string | Uint8Array, PlatformError.PlatformError>
+
+  /**
+   * Generates a cryptographically secure ULID string.
+   *
+   * **Details**
+   *
+   * ULIDs contain 26 uppercase Crockford base32 characters. The first 10 encode
+   * the `Clock` timestamp in milliseconds; the remaining 16 encode 80 random
+   * bits. ULIDs sort by timestamp, with no ordering guarantee within the same
+   * millisecond.
+   *
+   * Timestamp normalization matches UUIDv7: fractions are truncated, values are
+   * clamped to the 48-bit range, and `NaN` encodes as zero.
+   */
+  readonly randomULID: Effect.Effect<string, PlatformError.PlatformError>
 }
 
 /**
@@ -167,6 +216,7 @@ export interface Crypto {
  *
  * @see {@link make} for constructing a Crypto service from primitive operations
  *
+ * @stability unstable
  * @category services
  * @since 4.0.0
  */
@@ -206,6 +256,7 @@ export const Crypto: Context.Service<Crypto, Crypto> = Context.Service("effect/C
  * await Effect.runPromise(testCrypto.randomBytes(4)) // => new Uint8Array([0, 0, 0, 0])
  * ```
  *
+ * @stability unstable
  * @category constructors
  * @since 4.0.0
  */
@@ -250,7 +301,7 @@ export const make = (
     random: Effect.sync(() => nextDoubleUnsafe()),
     randomBoolean: Effect.sync(() => nextDoubleUnsafe() > 0.5),
     randomInt: Effect.sync(() => nextIntUnsafe()),
-    randomBetween: (min, max) => Effect.sync(() => nextDoubleUnsafe() * (max - min) + min),
+    randomBetween: (min, max) => Effect.sync(() => random.nextBetween(min, max, nextDoubleUnsafe())),
     randomIntBetween(min, max, options) {
       const extra = options?.halfOpen === true ? 0 : 1
       return Effect.sync(() => {
@@ -270,9 +321,18 @@ export const make = (
         }
         return buffer
       }),
-    randomUUIDv4: Effect.sync(() => formatUUIDv4(randomBytesUnsafe(16))),
-    randomUUIDv7: Effect.clockWith((clock) =>
-      Effect.succeed(formatUUIDv7(clock.currentTimeMillisUnsafe(), randomBytesUnsafe(16)))
+    randomUUIDv4: ((options?: { readonly format?: "hex" | "bytes" | undefined }) =>
+      Effect.sync(() => {
+        const bytes = Uuid.v4Bytes(randomBytesUnsafe(16))
+        return options?.format === "bytes" ? bytes : Uuid.stringify(bytes)
+      })) as Crypto["randomUUIDv4"],
+    randomUUIDv7: ((options?: { readonly format?: "hex" | "bytes" | undefined }) =>
+      Effect.clockWith((clock) => {
+        const bytes = Uuid.v7Bytes(clock.currentTimeMillisUnsafe(), randomBytesUnsafe(16))
+        return Effect.succeed(options?.format === "bytes" ? bytes : Uuid.stringify(bytes))
+      })) as Crypto["randomUUIDv7"],
+    randomULID: Effect.clockWith((clock) =>
+      Effect.succeed(Ulid.ulidString(clock.currentTimeMillisUnsafe(), randomBytesUnsafe(10)))
     )
   })
 }
@@ -285,41 +345,3 @@ const validateSize = (method: string, size: number): Effect.Effect<number, Platf
       method,
       description: "size must be a non-negative safe integer"
     }))
-
-const hex = (byte: number): string => byte.toString(16).padStart(2, "0")
-
-const formatUUID = (bytes: Uint8Array): string => {
-  const segments = [
-    bytes.subarray(0, 4),
-    bytes.subarray(4, 6),
-    bytes.subarray(6, 8),
-    bytes.subarray(8, 10),
-    bytes.subarray(10, 16)
-  ]
-
-  return segments.map((segment) => Array.from(segment, hex).join("")).join("-")
-}
-
-const formatUUIDv4 = (bytes: Uint8Array): string => {
-  bytes[6] = (bytes[6] & 0x0f) | 0x40
-  bytes[8] = (bytes[8] & 0x3f) | 0x80
-
-  return formatUUID(bytes)
-}
-
-const maxUUIDv7Timestamp = 2 ** 48 - 1
-
-const formatUUIDv7 = (timestampMillis: number, bytes: Uint8Array): string => {
-  const timestamp = Math.min(Math.max(0, Math.trunc(timestampMillis)), maxUUIDv7Timestamp)
-
-  bytes[0] = Math.floor(timestamp / 2 ** 40)
-  bytes[1] = Math.floor(timestamp / 2 ** 32) & 0xff
-  bytes[2] = Math.floor(timestamp / 2 ** 24) & 0xff
-  bytes[3] = Math.floor(timestamp / 2 ** 16) & 0xff
-  bytes[4] = Math.floor(timestamp / 2 ** 8) & 0xff
-  bytes[5] = timestamp & 0xff
-  bytes[6] = (bytes[6] & 0x0f) | 0x70
-  bytes[8] = (bytes[8] & 0x3f) | 0x80
-
-  return formatUUID(bytes)
-}

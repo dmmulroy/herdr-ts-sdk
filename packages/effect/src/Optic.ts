@@ -9,10 +9,12 @@
  * constructors, focusing helpers, and operations for replacing, modifying, or
  * collecting focused values.
  *
+ * @stability stable
  * @since 4.0.0
  */
 
-import { identity } from "./Function.ts"
+import * as Arr from "./Array.ts"
+import { dual, identity } from "./Function.ts"
 import * as InternalRecord from "./internal/record.ts"
 import * as Option from "./Option.ts"
 import * as Predicate from "./Predicate.ts"
@@ -21,7 +23,7 @@ import type * as Schema from "./Schema.ts"
 import * as SchemaAST from "./SchemaAST.ts"
 import * as SchemaIssue from "./SchemaIssue.ts"
 import * as Struct from "./Struct.ts"
-import type { IsUnion } from "./Types.ts"
+import type { IsUnion, NoInfer } from "./Types.ts"
 
 /**
  * A lossless, reversible conversion between types `S` and `A`.
@@ -58,6 +60,7 @@ import type { IsUnion } from "./Types.ts"
  * @see {@link Lens} — when you only need a one-directional focus into a whole
  * @see {@link Prism} — when the focus may not be present
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -94,6 +97,7 @@ export interface Iso<in out S, in out A> extends Lens<S, A>, Prism<S, A> {}
  * @see {@link Iso} — the type this function returns
  * @see {@link id} — identity iso (no conversion)
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -133,6 +137,7 @@ export function makeIso<S, A>(get: (s: S) => A, set: (a: A) => S): Iso<S, A> {
  * @see {@link Iso} — when conversion is lossless in both directions
  * @see {@link Optional} — when reading can also fail
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -171,6 +176,7 @@ export interface Lens<in out S, in out A> extends Optional<S, A> {
  * @see {@link Lens} — the type this function returns
  * @see {@link makeIso} — when no original `S` is needed for `set`
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -217,6 +223,7 @@ export function makeLens<S, A>(get: (s: S) => A, replace: (a: A, s: S) => S): Le
  * @see {@link fromChecks} — build a Prism from schema checks
  * @see {@link Lens} — when reading always succeeds
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -260,6 +267,7 @@ export interface Prism<in out S, in out A> extends Optional<S, A> {
  * @see {@link Prism} — the type this function returns
  * @see {@link fromChecks} — build from `Schema` checks instead
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -303,6 +311,7 @@ export function makePrism<S, A>(
  * @see {@link makePrism} — constructor with custom getter/setter
  * @see {@link Prism} — the type this function returns
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -439,6 +448,7 @@ type ForbidUnion<A, Message extends string> = IsUnion<A> extends true ? [Message
  * @see {@link Lens} — when reading always succeeds
  * @see {@link Prism} — when writing always succeeds
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -914,6 +924,7 @@ export interface Optional<in out S, in out A> {
  * @see {@link makeLens} — when reading always succeeds
  * @see {@link makePrism} — when writing always succeeds
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -960,6 +971,7 @@ export function makeOptional<S, A>(
  * @see {@link getAll} — extract focused elements
  * @see {@link Optional} — the base type
  *
+ * @stability stable
  * @category models
  * @since 4.0.0
  */
@@ -1001,8 +1013,11 @@ class OptionalImpl<S, A> implements Optional<S, A> {
           (a, s) => {
             const copy = cloneShallow(s)
             if (a === undefined) {
-              if (Array.isArray(copy) && typeof key === "number") {
-                copy.splice(key, 1)
+              if (
+                Array.isArray(copy) &&
+                (typeof key === "number" || (typeof key === "string" && Arr.isCanonicalArrayIndex(key)))
+              ) {
+                copy.splice(Number(key), 1)
               } else {
                 delete copy[key]
               }
@@ -1058,10 +1073,10 @@ class OptionalImpl<S, A> implements Optional<S, A> {
     )
   }
   pick(keys: any) {
-    return this.compose(makeLens(Struct.pick(keys), (p, a) => ({ ...a, ...p })))
+    return this.compose(makeLens(Struct.pick(keys), (p, a) => ({ ...Struct.omit(a, keys), ...p })))
   }
   omit(keys: any) {
-    return this.compose(makeLens(Struct.omit(keys), (o, a) => ({ ...a, ...o })))
+    return this.compose(makeLens(Struct.omit(keys), (o, a) => ({ ...Struct.pick(a, keys), ...o })))
   }
   notUndefined(): any {
     return this.refine(Predicate.isNotUndefined, { expected: "a value other than `undefined`" })
@@ -1275,8 +1290,186 @@ function composeKind(a: Kind, b: Kind): Kind {
 // ---------------------------------------------
 
 /**
- * Returns a function that extracts all elements focused by a
- * {@link Traversal} as a plain mutable array.
+ * Reads the focused value from a `Lens`.
+ *
+ * **When to use**
+ *
+ * Use when the optic always focuses exactly one value.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last forms.
+ *
+ * @see {@link getResult} for optics whose focus may be absent
+ *
+ * @stability stable
+ * @category getters
+ * @since 4.0.0
+ */
+export const get: {
+  <S, A>(optic: Lens<S, A>): (self: NoInfer<S>) => A
+  <S, A>(self: NoInfer<S>, optic: Lens<S, A>): A
+} = dual<
+  <S, A>(optic: Lens<S, A>) => (self: NoInfer<S>) => A,
+  <S, A>(self: NoInfer<S>, optic: Lens<S, A>) => A
+>(2, (self, optic) => optic.get(self))
+
+/**
+ * Attempts to read the focused value from an `Optional`.
+ *
+ * **When to use**
+ *
+ * Use when the optic may not focus and you need the failure as a `Result`.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last forms.
+ *
+ * @see {@link get} for optics that always focus
+ *
+ * @stability stable
+ * @category getters
+ * @since 4.0.0
+ */
+export const getResult: {
+  <S, A>(optic: Optional<S, A>): (self: NoInfer<S>) => Result.Result<A, SchemaIssue.Issue>
+  <S, A>(self: NoInfer<S>, optic: Optional<S, A>): Result.Result<A, SchemaIssue.Issue>
+} = dual<
+  <S, A>(optic: Optional<S, A>) => (self: NoInfer<S>) => Result.Result<A, SchemaIssue.Issue>,
+  <S, A>(self: NoInfer<S>, optic: Optional<S, A>) => Result.Result<A, SchemaIssue.Issue>
+>(2, (self, optic) => optic.getResult(self))
+
+/**
+ * Builds a source value from a focused value using a `Prism`.
+ *
+ * **When to use**
+ *
+ * Use when the optic can construct the source without an existing source value.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last forms. The focused value is `self`.
+ *
+ * @see {@link replace} for updates that use an existing source
+ *
+ * @stability stable
+ * @category transforming
+ * @since 4.0.0
+ */
+export const set: {
+  <S, A>(optic: Prism<S, A>): (self: NoInfer<A>) => S
+  <S, A>(self: NoInfer<A>, optic: Prism<S, A>): S
+} = dual<
+  <S, A>(optic: Prism<S, A>) => (self: NoInfer<A>) => S,
+  <S, A>(self: NoInfer<A>, optic: Prism<S, A>) => S
+>(2, (self, optic) => optic.set(self))
+
+/**
+ * Replaces the focused value in a source.
+ *
+ * **When to use**
+ *
+ * Use when a failed focus should leave the source unchanged.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last forms.
+ *
+ * @see {@link replaceResult} for an explicit replacement failure
+ *
+ * @stability stable
+ * @category transforming
+ * @since 4.0.0
+ */
+export const replace: {
+  <S, A>(optic: Optional<S, A>, value: NoInfer<A>): (self: NoInfer<S>) => S
+  <S, A>(self: NoInfer<S>, optic: Optional<S, A>, value: NoInfer<A>): S
+} = dual<
+  <S, A>(optic: Optional<S, A>, value: NoInfer<A>) => (self: NoInfer<S>) => S,
+  <S, A>(self: NoInfer<S>, optic: Optional<S, A>, value: NoInfer<A>) => S
+>(3, (self, optic, value) => optic.replace(value, self))
+
+/**
+ * Attempts to replace the focused value in a source.
+ *
+ * **When to use**
+ *
+ * Use when you need an explicit `Result` for a replacement failure.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last forms.
+ *
+ * @see {@link replace} for returning the original source on failure
+ *
+ * @stability stable
+ * @category transforming
+ * @since 4.0.0
+ */
+export const replaceResult: {
+  <S, A>(
+    optic: Optional<S, A>,
+    value: NoInfer<A>
+  ): (self: NoInfer<S>) => Result.Result<S, SchemaIssue.Issue>
+  <S, A>(
+    self: NoInfer<S>,
+    optic: Optional<S, A>,
+    value: NoInfer<A>
+  ): Result.Result<S, SchemaIssue.Issue>
+} = dual<
+  <S, A>(
+    optic: Optional<S, A>,
+    value: NoInfer<A>
+  ) => (self: NoInfer<S>) => Result.Result<S, SchemaIssue.Issue>,
+  <S, A>(
+    self: NoInfer<S>,
+    optic: Optional<S, A>,
+    value: NoInfer<A>
+  ) => Result.Result<S, SchemaIssue.Issue>
+>(3, (self, optic, value) => optic.replaceResult(value, self))
+
+/**
+ * Transforms the focused value in a source.
+ *
+ * **When to use**
+ *
+ * Use when you want to update a focus with a function.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last forms. A failed focus leaves the
+ * source unchanged.
+ *
+ * @see {@link modifyAll} for transforming every value in a traversal
+ *
+ * @stability stable
+ * @category transforming
+ * @since 4.0.0
+ */
+export const modify: {
+  <S, A>(
+    optic: Optional<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ): (self: NoInfer<S>) => S
+  <S, A>(
+    self: NoInfer<S>,
+    optic: Optional<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ): S
+} = dual<
+  <S, A>(
+    optic: Optional<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ) => (self: NoInfer<S>) => S,
+  <S, A>(
+    self: NoInfer<S>,
+    optic: Optional<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ) => S
+>(3, (self, optic, f) => optic.modify(f)(self))
+
+/**
+ * Extracts all values focused by a `Traversal` as a plain mutable array.
  *
  * **When to use**
  *
@@ -1287,6 +1480,7 @@ function composeKind(a: Kind, b: Kind): Kind {
  *
  * - Returns an empty array when the traversal cannot focus.
  * - Always returns a fresh array (safe to mutate).
+ * - Supports both data-first and data-last forms.
  *
  * **Example** (Collecting positive numbers)
  *
@@ -1308,16 +1502,62 @@ function composeKind(a: Kind, b: Kind): Kind {
  *
  * @see {@link Traversal} — the optic type this operates on
  *
+ * @stability stable
  * @category getters
  * @since 4.0.0
  */
-export function getAll<S, A>(traversal: Traversal<S, A>): (s: S) => Array<A> {
-  return (s) =>
-    Result.match(traversal.getResult(s), {
-      onFailure: () => [],
-      onSuccess: (as) => [...as]
-    })
-}
+export const getAll: {
+  <S, A>(traversal: Traversal<S, A>): (self: NoInfer<S>) => Array<A>
+  <S, A>(self: NoInfer<S>, traversal: Traversal<S, A>): Array<A>
+} = dual<
+  <S, A>(traversal: Traversal<S, A>) => (self: NoInfer<S>) => Array<A>,
+  <S, A>(self: NoInfer<S>, traversal: Traversal<S, A>) => Array<A>
+>(2, (self, traversal) =>
+  Result.match(traversal.getResult(self), {
+    onFailure: () => [],
+    onSuccess: (as) => [...as]
+  }))
+
+/**
+ * Transforms every value focused by a `Traversal`.
+ *
+ * **When to use**
+ *
+ * Use when you want to update each value selected by a traversal.
+ *
+ * **Details**
+ *
+ * Supports both data-first and data-last forms. A failed traversal leaves the
+ * source unchanged.
+ *
+ * @see {@link modify} for transforming the focus as a whole
+ * @see {@link getAll} for reading every focused value
+ *
+ * @stability stable
+ * @category transforming
+ * @since 4.0.0
+ */
+export const modifyAll: {
+  <S, A>(
+    traversal: Traversal<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ): (self: NoInfer<S>) => S
+  <S, A>(
+    self: NoInfer<S>,
+    traversal: Traversal<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ): S
+} = dual<
+  <S, A>(
+    traversal: Traversal<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ) => (self: NoInfer<S>) => S,
+  <S, A>(
+    self: NoInfer<S>,
+    traversal: Traversal<S, A>,
+    f: (value: NoInfer<A>) => NoInfer<A>
+  ) => S
+>(3, (self, traversal, f) => traversal.modifyAll(f)(self))
 
 // ---------------------------------------------
 // Built-in Optics
@@ -1352,6 +1592,7 @@ const identityIso = make([])
  *
  * @see {@link Iso} — the type this function returns
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -1390,6 +1631,7 @@ export function id<S>(): Iso<S, S> {
  * @see {@link Iso} — the type this function returns
  * @see {@link id} — identity iso
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -1427,6 +1669,7 @@ export function entries<A>(): Iso<Record<string, A>, ReadonlyArray<readonly [str
  * @see {@link none} — focuses on `None` instead
  * @see {@link Prism} — the type this function returns
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -1466,6 +1709,7 @@ export function some<A>(): Prism<Option.Option<A>, A> {
  * @see {@link some} — focuses on `Some` instead
  * @see {@link Prism} — the type this function returns
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -1505,6 +1749,7 @@ export function none<A>(): Prism<Option.Option<A>, undefined> {
  * @see {@link failure} — focuses on the failure side
  * @see {@link Prism} — the type this function returns
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */
@@ -1544,6 +1789,7 @@ export function success<A, E>(): Prism<Result.Result<A, E>, A> {
  * @see {@link success} — focuses on the success side
  * @see {@link Prism} — the type this function returns
  *
+ * @stability stable
  * @category constructors
  * @since 4.0.0
  */

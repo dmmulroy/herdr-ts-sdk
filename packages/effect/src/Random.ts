@@ -6,6 +6,7 @@
  * random generation is a service, tests and applications can replace the
  * generator used by Effect programs.
  *
+ * @stability stable
  * @since 4.0.0
  */
 import type * as Arr from "./Array.ts"
@@ -16,6 +17,24 @@ import { dual } from "./Function.ts"
 import * as random from "./internal/random.ts"
 import type * as NonEmptyIterable from "./NonEmptyIterable.ts"
 import * as Predicate from "./Predicate.ts"
+
+/**
+ * The service used to generate pseudo-random numbers.
+ *
+ * @stability stable
+ * @category services
+ * @since 4.0.0
+ */
+export interface Random {
+  /**
+   * Generates a random safe integer.
+   */
+  nextIntUnsafe(): number
+  /**
+   * Generates a random number between 0 (inclusive) and 1 (exclusive).
+   */
+  nextDoubleUnsafe(): number
+}
 
 /**
  * Represents a service for generating pseudo-random numbers.
@@ -46,15 +65,13 @@ import * as Predicate from "./Predicate.ts"
  * await Effect.runPromise(program.pipe(Random.withSeed("example"))) // => [0.1633802591287037, 3434461687501127, 1]
  * ```
  *
+ * @stability stable
  * @category services
  * @since 2.0.0
  */
-export const Random: Context.Reference<{
-  nextIntUnsafe(): number
-  nextDoubleUnsafe(): number
-}> = random.Random
+export const Random: Context.Reference<Random> = random.Random
 
-const randomWith = <A>(f: (random: typeof Random["Service"]) => A): Effect.Effect<A> =>
+const randomWith = <A>(f: (random: Random) => A): Effect.Effect<A> =>
   Effect.withFiber((fiber) => Effect.succeed(f(fiber.getRef(Random))))
 
 /**
@@ -73,6 +90,7 @@ const randomWith = <A>(f: (random: typeof Random["Service"]) => A): Effect.Effec
  * await Effect.runPromise(Random.next.pipe(Random.withSeed("example"))) // => 0.1633802591287037
  * ```
  *
+ * @stability stable
  * @category generators
  * @since 2.0.0
  */
@@ -93,6 +111,7 @@ export const next: Effect.Effect<number> = randomWith((r) => r.nextDoubleUnsafe(
  * await Effect.runPromise(Random.nextBoolean.pipe(Random.withSeed("example"))) // => false
  * ```
  *
+ * @stability stable
  * @category generators
  * @since 2.0.0
  */
@@ -115,6 +134,7 @@ export const nextBoolean: Effect.Effect<boolean> = randomWith((r) => r.nextDoubl
  * await Effect.runPromise(Random.nextInt.pipe(Random.withSeed("example"))) // => -6064002158214091
  * ```
  *
+ * @stability stable
  * @category generators
  * @since 2.0.0
  */
@@ -135,11 +155,12 @@ export const nextInt: Effect.Effect<number> = randomWith((r) => r.nextIntUnsafe(
  * await Effect.runPromise(Random.nextBetween(0, 1).pipe(Random.withSeed("example"))) // => 0.1633802591287037
  * ```
  *
+ * @stability stable
  * @category generators
  * @since 4.0.0
  */
 export const nextBetween = (min: number, max: number): Effect.Effect<number> =>
-  randomWith((r) => r.nextDoubleUnsafe() * (max - min) + min)
+  randomWith((r) => random.nextBetween(min, max, r.nextDoubleUnsafe()))
 
 /**
  * Generates a random integer between `min` and `max`.
@@ -171,6 +192,7 @@ export const nextBetween = (min: number, max: number): Effect.Effect<number> =>
  * await Effect.runPromise(program.pipe(Random.withSeed("example"))) // => [1, 4, 0]
  * ```
  *
+ * @stability stable
  * @category generators
  * @since 2.0.0
  */
@@ -200,6 +222,7 @@ export const nextIntBetween = (min: number, max: number, options?: {
  * await Effect.runPromise(Random.shuffle([1, 2, 3, 4, 5]).pipe(Random.withSeed("example"))) // => [4, 2, 5, 3, 1]
  * ```
  *
+ * @stability stable
  * @category generators
  * @since 2.0.0
  */
@@ -236,6 +259,7 @@ export const shuffle = <A>(elements: Iterable<A>): Effect.Effect<Array<A>> =>
  * await Effect.runPromise(Random.choice(["red", "green", "blue"] as const).pipe(Random.withSeed("example"))) // => "red"
  * ```
  *
+ * @stability stable
  * @category generators
  * @since 3.6.0
  */
@@ -284,6 +308,7 @@ export const choice: <Self extends Iterable<unknown>>(
  * ])) // => [[0.018368576514773527, 0.4010840628128671], [0.018368576514773527, 0.4010840628128671]]
  * ```
  *
+ * @stability stable
  * @category providing services
  * @since 4.0.0
  */

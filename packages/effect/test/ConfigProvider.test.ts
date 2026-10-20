@@ -288,6 +288,33 @@ describe("ConfigProvider", () => {
     })
   })
 
+  describe("fromEnvRecord", () => {
+    it("reads defined values and skips undefined values", async () => {
+      const env: Record<string, string | undefined> = {
+        DEFINED: "value",
+        UNDEFINED: undefined
+      }
+      const provider = ConfigProvider.fromEnvRecord(env)
+
+      await assertSuccess(provider, ["DEFINED"], ConfigProvider.makeValue("value"))
+      await assertMissing(provider, ["UNDEFINED"])
+      await assertSuccess(provider, [], ConfigProvider.makeRecord(new Set(["DEFINED"])))
+    })
+
+    it("treats empty strings as missing by default", async () => {
+      await assertMissing(ConfigProvider.fromEnvRecord({ EMPTY: "" }), ["EMPTY"])
+    })
+
+    it("preserves empty strings when requested", async () => {
+      const provider = ConfigProvider.fromEnvRecord(
+        { EMPTY: "" },
+        { preserveEmptyStrings: true }
+      )
+
+      await assertSuccess(provider, ["EMPTY"], ConfigProvider.makeValue(""))
+    })
+  })
+
   describe("fromEnv", () => {
     it("env without an underscore", async () => {
       const env = { A: "value1" }
@@ -535,6 +562,14 @@ describe("ConfigProvider", () => {
       await assertSuccess(provider, ["A"], ConfigProvider.makeRecord(new Set(["01", "1"])))
       await assertSuccess(provider, ["A", "01"], ConfigProvider.makeValue("value1"))
       await assertSuccess(provider, ["A", 1], ConfigProvider.makeValue("value2"))
+    })
+
+    it("array: values outside the JavaScript array index range yield a Record", async () => {
+      const env = { A_4294967295: "value1" }
+      const provider = ConfigProvider.fromEnv({ env })
+
+      await assertSuccess(provider, ["A"], ConfigProvider.makeRecord(new Set(["4294967295"])))
+      await assertSuccess(provider, ["A", "4294967295"], ConfigProvider.makeValue("value1"))
     })
 
     it("root path exposes top-level keys", async () => {
@@ -811,20 +846,39 @@ DB_PASS=\${PASSWORD}
       await assertSuccess(provider, ["DB_PASS"], ConfigProvider.makeValue("value"))
     })
 
+    it("expands referenced values as literal data", async () => {
+      const provider = ConfigProvider.fromDotEnvContents(
+        `
+SOURCE=a$&b$'c$\`d
+TARGET=\${SOURCE}
+ESCAPED=\\$SOURCE/$SOURCE
+`,
+        { expandVariables: true }
+      )
+      await assertSuccess(provider, ["TARGET"], ConfigProvider.makeValue("a$&b$'c$`d"))
+      await assertSuccess(provider, ["ESCAPED"], ConfigProvider.makeValue("$SOURCE/a$&b$'c$`d"))
+    })
+
     it("expansion defaults are used only for empty or unset variables", async () => {
       const provider = ConfigProvider.fromDotEnvContents(
         `
 SET=actual
 EMPTY=
+EXPANDS_EMPTY=$EMPTY
+BRACED=a}b
 FROM_SET=\${SET:-fallback}
 FROM_EMPTY=\${EMPTY:-fallback}
 FROM_UNSET=\${UNSET:-fallback}
+FROM_EXPANDS_EMPTY=\${EXPANDS_EMPTY:-fallback}
+NESTED=\${UNSET:-\${BRACED}}
 `,
         { expandVariables: true }
       )
       await assertSuccess(provider, ["FROM_SET"], ConfigProvider.makeValue("actual"))
       await assertSuccess(provider, ["FROM_EMPTY"], ConfigProvider.makeValue("fallback"))
       await assertSuccess(provider, ["FROM_UNSET"], ConfigProvider.makeValue("fallback"))
+      await assertSuccess(provider, ["FROM_EXPANDS_EMPTY"], ConfigProvider.makeValue("fallback"))
+      await assertSuccess(provider, ["NESTED"], ConfigProvider.makeValue("a}b"))
     })
 
     it("does not expand missing inherited variables", async () => {
@@ -832,6 +886,45 @@ FROM_UNSET=\${UNSET:-fallback}
         expandVariables: true
       })
       await assertMissing(provider, ["VALUE"])
+    })
+
+    it("expands self and circular references to empty values", async () => {
+      const provider = ConfigProvider.fromDotEnvContents(
+        `
+PATH=$PATH:/opt/bin
+A=$B
+B=$A
+SELF_DEFAULT=\${SELF_DEFAULT:-fallback}
+`,
+        { expandVariables: true }
+      )
+      await assertSuccess(provider, ["PATH"], ConfigProvider.makeValue(":/opt/bin"))
+      await assertMissing(provider, ["A"])
+      await assertSuccess(provider, ["SELF_DEFAULT"], ConfigProvider.makeValue("fallback"))
+    })
+
+    it("does not scan expanded text again", async () => {
+      const provider = ConfigProvider.fromDotEnvContents(
+        `
+USER=app
+HOME_DIR=/home/$USER
+LOG_DIR=\${HOME_DIR}_logs
+NAME=$USER\${SUFFIX:-_v1}
+LITERAL=$USER/$
+`,
+        { expandVariables: true }
+      )
+      await assertSuccess(provider, ["LOG_DIR"], ConfigProvider.makeValue("/home/app_logs"))
+      await assertSuccess(provider, ["NAME"], ConfigProvider.makeValue("app_v1"))
+      await assertSuccess(provider, ["LITERAL"], ConfigProvider.makeValue("app/$"))
+    })
+
+    it("expands long sequences of adjacent references without overflowing", async () => {
+      const provider = ConfigProvider.fromDotEnvContents(
+        `A=a\nVALUE=${"$A".repeat(20_000)}`,
+        { expandVariables: true }
+      )
+      await assertSuccess(provider, ["VALUE"], ConfigProvider.makeValue("a".repeat(20_000)))
     })
   })
 

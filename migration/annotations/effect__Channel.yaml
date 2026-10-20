@@ -114,7 +114,7 @@
   note: "Use Channel.mapInput(self, (value) => Effect.succeed(f(value))); v4 consolidated pure and effectful input mapping."
 "effect/Channel#mapInputInEffect":
   replacement: "Channel.mapInput"
-  note: "Renamed to mapInput; the mapper remains effectful."
+  note: "Renamed to mapInput; the mapper remains effectful. Both overloads retain mapper service requirements in the resulting channel, so provide those services before running it."
 "effect/Channel#mapOut":
   replacement: "Channel.map"
   note: "Renamed to map; the v4 mapper also receives the element index."
@@ -173,11 +173,11 @@
   replacement: "Channel.forever"
   note: "Use forever for infinite repetition. Channel.repeat takes a Schedule and may terminate, so it is not equivalent."
 "effect/Channel#run":
-  replacement: "Channel.runDone"
-  note: "Renamed to runDone for an inputless, outputless channel. Use runDrain if emitted elements should be discarded."
+  replacement: "Channel.runDrain"
+  note: "Use runDrain to consume all emitted elements and return the channel's done value."
 "effect/Channel#runScoped":
   replacement: "Channel.toPull"
-  note: "No direct scoped runner remains. Use toPull in the caller scope and recover Cause.Done; use runDone or runDrain when an internally managed scope is acceptable."
+  note: "No direct scoped runner remains. Use toPull in the caller scope and recover Cause.Done; use runDrain when an internally managed scope is acceptable."
 "effect/Channel#scopedWith":
   replacement: "Channel.unwrap"
   note: "Use Channel.unwrap(Effect.map(Effect.scope, (scope) => Channel.fromEffect(f(scope)))) so the effect uses the active channel scope."

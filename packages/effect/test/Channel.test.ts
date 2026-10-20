@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { assertExitFailure, assertFailure, assertTrue } from "@effect/vitest/utils"
 import { Cause, Data, Deferred, pipe, Ref } from "effect"
+import * as Arr from "effect/Array"
 import * as Channel from "effect/Channel"
 import * as Chunk from "effect/Chunk"
 import * as Effect from "effect/Effect"
@@ -10,9 +11,62 @@ import * as Filter from "effect/Filter"
 import * as Latch from "effect/Latch"
 import * as Queue from "effect/Queue"
 import * as Result from "effect/Result"
+import * as Schedule from "effect/Schedule"
+import * as Scheduler from "effect/Scheduler"
+import * as Stream from "effect/Stream"
 
 describe("Channel", () => {
+  describe("repetition", () => {
+    for (const kind of ["repeat", "forever"] as const) {
+      const repeated = (source: Channel.Channel<Arr.NonEmptyArray<number>>) =>
+        kind === "repeat" ? Channel.repeat(source, Schedule.forever) : Channel.forever(source)
+
+      it.effect(kind + " work per repetition does not grow", () =>
+        Effect.gen(function*() {
+          const stream = Stream.fromChannel(repeated(Channel.succeed(Arr.make(1))))
+          const ops = (n: number) => countOps(stream.pipe(Stream.take(n), Stream.runDrain))
+          const small = yield* ops(1_000)
+          const large = yield* ops(2_000)
+          assert.isBelow(large / small, 2.5)
+        }))
+    }
+  })
+
   describe("constructors", () => {
+    it.live("fromAsyncIterable awaits idle iterator cleanup on early close", () =>
+      Effect.gen(function*() {
+        let finalized = false
+        async function* source() {
+          try {
+            yield [1] as const
+            yield [2] as const
+          } finally {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+            finalized = true
+          }
+        }
+        yield* Channel.fromAsyncIterable(source(), (error) => error).pipe(
+          Stream.fromChannel,
+          Stream.take(1),
+          Stream.runDrain
+        )
+        assert.strictEqual(finalized, true)
+      }))
+
+    for (
+      const [name, constructor] of [["callback", Channel.callback], ["callbackArray", Channel.callbackArray]] as const
+    ) {
+      it.live(`${name} propagates registration effect failures`, () =>
+        Effect.gen(function*() {
+          const exit = yield* constructor(() => Effect.fail("setup failed")).pipe(
+            Channel.runDrain,
+            Effect.timeout("500 millis"),
+            Effect.exit
+          )
+          assert.deepStrictEqual(exit, Exit.fail("setup failed"))
+        }))
+    }
+
     it.effect("empty", () =>
       Effect.gen(function*() {
         const result = yield* Channel.empty.pipe(
@@ -103,6 +157,21 @@ describe("Channel", () => {
         assert.deepStrictEqual(result, [[0, 1, 1], [2, 3]])
       }))
 
+    it.effect("fromIteratorArray - normalizes the chunk size", () =>
+      Effect.gen(function*() {
+        const results = yield* Effect.forEach([Number.NaN, -1, 0.5, 1.9], (chunkSize) =>
+          Channel.fromIteratorArray(() =>
+            [1, 2, 3][Symbol.iterator](), chunkSize).pipe(
+              Channel.runCollect
+            ))
+        assert.deepStrictEqual(results, [
+          [[1], [2], [3]],
+          [[1], [2], [3]],
+          [[1], [2], [3]],
+          [[1], [2], [3]]
+        ])
+      }))
+
     it.effect("fromIterable", () =>
       Effect.gen(function*() {
         const set = new Set([1, 1, 2, 3])
@@ -117,6 +186,17 @@ describe("Channel", () => {
         const resultChunked = yield* Channel.runCollect(Channel.fromIterableArray(numbers, 4))
         assert.deepStrictEqual(result, [[1, 2, 3, 4, 5]])
         assert.deepStrictEqual(resultChunked, [[1, 2, 3, 4], [5]])
+      }))
+
+    it.effect("fromIterableArray - normalizes the chunk size", () =>
+      Effect.gen(function*() {
+        const results = yield* Effect.forEach([Number.NaN, 0, 2.9], (chunkSize) =>
+          Channel.runCollect(Channel.fromIterableArray([1, 2, 3], chunkSize)))
+        assert.deepStrictEqual(results, [
+          [[1], [2], [3]],
+          [[1], [2], [3]],
+          [[1, 2], [3]]
+        ])
       }))
 
     it.effect("fromReadableStream", () =>
@@ -167,6 +247,79 @@ describe("Channel", () => {
         ).pipe(Channel.runDrain)
         assert.isTrue(yield* Ref.get(acquired))
         assert.isTrue(yield* Ref.get(released))
+      }))
+
+    it.effect("acquireUseRelease releases resource when interrupted during acquisition", () =>
+      Effect.gen(function*() {
+        const started = yield* Deferred.make<void>()
+        const gate = yield* Deferred.make<void>()
+        const released: Array<number> = []
+        const acquire = Effect.gen(function*() {
+          yield* Deferred.succeed(started, undefined)
+          yield* Deferred.await(gate)
+          return 1
+        })
+        const fiber = yield* Effect.forkChild(Channel.runDrain(Channel.acquireUseRelease(
+          acquire,
+          () => Channel.never,
+          (resource) =>
+            Effect.sync(() => {
+              released.push(resource)
+            })
+        )))
+        yield* Deferred.await(started)
+        yield* Effect.forkChild(Fiber.interrupt(fiber), { startImmediately: true })
+        yield* Deferred.succeed(gate, undefined)
+        const exit = yield* Fiber.await(fiber)
+        assert.isTrue(Exit.hasInterrupts(exit))
+        assert.deepStrictEqual(released, [1])
+      }))
+
+    it.effect("acquireUseRelease combines usage and release failures", () =>
+      Effect.gen(function*() {
+        const result = yield* Channel.acquireUseRelease(
+          Effect.void,
+          () => Channel.fail("usage failure"),
+          () => Effect.die("release failure")
+        ).pipe(Channel.runDrain, Effect.exit)
+        assert.deepStrictEqual(
+          result,
+          Exit.failCause(Cause.combine(Cause.fail("usage failure"), Cause.die("release failure")))
+        )
+      }))
+
+    it.effect("acquireUseRelease surfaces release failure after successful usage", () =>
+      Effect.gen(function*() {
+        const result = yield* Channel.acquireUseRelease(
+          Effect.void,
+          () => Channel.succeed(1),
+          () => Effect.die("release failure")
+        ).pipe(Channel.runDrain, Effect.exit)
+        assert.deepStrictEqual(result, Exit.die("release failure"))
+      }))
+  })
+
+  describe("destructors", () => {
+    it.effect("runDrain returns the done value after emitted elements", () =>
+      Effect.gen(function*() {
+        const result = yield* Channel.fromArray([1]).pipe(
+          Channel.concat(Channel.end("done")),
+          Channel.runDrain
+        )
+
+        assert.strictEqual(result, "done")
+      }))
+
+    it.effect("mkUint8Array", () =>
+      Effect.gen(function*() {
+        const bytes = yield* Channel.fromArray(
+          [
+            [new Uint8Array([1, 2])],
+            [new Uint8Array([3]), new Uint8Array([4, 5])]
+          ] as const
+        ).pipe(Channel.mkUint8Array)
+
+        assert.deepStrictEqual(bytes, new Uint8Array([1, 2, 3, 4, 5]))
       }))
   })
 
@@ -280,6 +433,32 @@ describe("Channel", () => {
   })
 
   describe("merging", () => {
+    for (const kind of ["mergeAll", "concurrent flatMap"] as const) {
+      const flatten = <E>(inner: Channel.Channel<number, E>) =>
+        kind === "mergeAll"
+          ? Channel.succeed(inner).pipe(Channel.mergeAll({ concurrency: 1 }))
+          : Channel.succeed(1).pipe(Channel.flatMap(() => inner, { concurrency: 2 }))
+
+      it.effect(`${kind} surfaces inner release failure after successful usage`, () =>
+        Effect.gen(function*() {
+          const inner = Channel.acquireRelease(Effect.succeed(1), () => Effect.die("release failure"))
+          const result = yield* flatten(inner).pipe(Channel.runCollect, Effect.exit)
+          assert.deepStrictEqual(result, Exit.die("release failure"))
+        }))
+
+      it.effect(`${kind} combines inner usage and release failures`, () =>
+        Effect.gen(function*() {
+          const inner = Channel.acquireRelease(Effect.succeed(1), () => Effect.die("release failure")).pipe(
+            Channel.mapEffect(() => Effect.fail("usage failure"))
+          )
+          const result = yield* flatten(inner).pipe(Channel.runCollect, Effect.exit)
+          assert.deepStrictEqual(
+            result,
+            Exit.failCause(Cause.combine(Cause.fail("usage failure"), Cause.die("release failure")))
+          )
+        }))
+    }
+
     it.effect("merge - interrupts left side if halt strategy is set to 'right'", () =>
       Effect.gen(function*() {
         const latch = yield* Latch.make(false)
@@ -338,6 +517,17 @@ describe("Channel", () => {
           haltStrategy: "both"
         }).pipe(Channel.runCollect)
         assert.deepStrictEqual(result, [1, 2])
+      }))
+
+    it.live("merge - propagates a finalizer defect after the other side completes", () =>
+      Effect.gen(function*() {
+        const left = Channel.acquireRelease(Effect.succeed(1), () => Effect.die("release defect"))
+        const result = yield* Channel.merge(left, Channel.empty).pipe(
+          Channel.runCollect,
+          Effect.timeout("500 millis"),
+          Effect.exit
+        )
+        assert.deepStrictEqual(result, Exit.die("release defect"))
       }))
 
     it.effect("merge - prioritizes failure", () =>
@@ -422,6 +612,22 @@ describe("Channel", () => {
     class OtherError extends Data.TaggedError("OtherError")<{
       readonly message: string
     }> {}
+
+    it.effect("catchDefect", () =>
+      Effect.gen(function*() {
+        const defect = new Error("boom")
+        const recovered = yield* Channel.fromEffect(Effect.die(defect)).pipe(
+          Channel.catchDefect((caught) => Channel.succeed(caught)),
+          Channel.runCollect
+        )
+        const failed = yield* Channel.fail("failure").pipe(
+          Channel.catchDefect(() => Channel.succeed("recovered")),
+          Channel.runCollect,
+          Effect.exit
+        )
+        assert.deepStrictEqual(recovered, [defect])
+        assertExitFailure(failed, Cause.fail("failure"))
+      }))
 
     it.effect("catchIf with refinement", () =>
       Effect.gen(function*() {
@@ -592,3 +798,18 @@ describe("Channel", () => {
       }))
   })
 })
+
+// The scheduler is asked whether to yield once for each fiber run-loop operation.
+const countOps = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<number, E> =>
+  Effect.suspend(() => {
+    let ops = 0
+    const scheduler: Scheduler.Scheduler = {
+      executionMode: "sync",
+      makeDispatcher: () => new Scheduler.MixedScheduler("sync").makeDispatcher(),
+      shouldYield: () => {
+        ops++
+        return false
+      }
+    }
+    return Effect.map(Effect.provideService(effect, Scheduler.Scheduler, scheduler), () => ops)
+  })

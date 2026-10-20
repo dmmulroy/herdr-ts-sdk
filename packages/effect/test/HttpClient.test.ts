@@ -1,6 +1,5 @@
-import { expect, it } from "@effect/vitest"
+import { assert, expect, it } from "@effect/vitest"
 import { Context, Effect, Layer, Schema, Stream, Struct } from "effect"
-import { TestClock } from "effect/testing"
 import {
   FetchHttpClient,
   HttpClient,
@@ -10,7 +9,8 @@ import {
   HttpServer,
   HttpServerRequest,
   HttpServerResponse
-} from "effect/unstable/http"
+} from "effect/http"
+import { TestClock } from "effect/testing"
 
 const Todo = Schema.Struct({
   userId: Schema.Number,
@@ -37,11 +37,11 @@ const makeJsonPlaceholder = Effect.gen(function*() {
 })
 interface JsonPlaceholder extends Effect.Success<typeof makeJsonPlaceholder> {}
 const JsonPlaceholder = Context.Service<JsonPlaceholder>("test/JsonPlaceholder")
-const JsonPlaceholderLive = Layer.effect(JsonPlaceholder)(makeJsonPlaceholder)
+const JsonPlaceholderLayer = Layer.effect(JsonPlaceholder)(makeJsonPlaceholder)
 const TestRoutes = HttpRouter.serve(HttpRouter.use(Effect.fnUntraced(function*(router) {
   yield* router.addAll([
     HttpRouter.route("GET", "/", Effect.succeed(HttpServerResponse.text("test"))),
-    HttpRouter.route("GET", "/redirect", Effect.succeed(HttpServerResponse.redirect("/"))),
+    HttpRouter.route("GET", "/redirect", Effect.succeed(HttpServerResponse.redirect("/?value=a%23b#fragment"))),
     HttpRouter.route(
       "GET",
       "/stream",
@@ -75,8 +75,8 @@ const TestRoutes = HttpRouter.serve(HttpRouter.use(Effect.fnUntraced(function*(r
     HttpRouter.route("HEAD", "/todos", Effect.succeed(HttpServerResponse.empty({ status: 200 })))
   ])
 })))
-const DenoHttpServerUrl = new URL("../../platform-deno/src/DenoHttpServer.ts", import.meta.url).href
-const TestServerLive = Layer.unwrap(Effect.promise(() =>
+const DenoHttpServerUrl = new URL("../../platform/deno/src/DenoHttpServer.ts", import.meta.url).href
+const TestServerLayer = Layer.unwrap(Effect.promise(() =>
   "Deno" in globalThis
     ? (import(DenoHttpServerUrl) as Promise<{
       readonly layerServer: (options: {
@@ -98,9 +98,9 @@ const TestServerLive = Layer.unwrap(Effect.promise(() =>
 ].forEach(({ layer, name }) => {
   const layerTest = HttpServer.layerTestClient.pipe(
     Layer.provide(layer),
-    Layer.provideMerge(TestServerLive)
+    Layer.provideMerge(TestServerLayer)
   )
-  const testLayer = Layer.merge(JsonPlaceholderLive, TestRoutes).pipe(
+  const testLayer = Layer.merge(JsonPlaceholderLayer, TestRoutes).pipe(
     Layer.provideMerge(layerTest)
   )
 
@@ -118,10 +118,13 @@ const TestServerLive = Layer.unwrap(Effect.promise(() =>
         const client = (yield* HttpClient.HttpClient).pipe(
           HttpClient.followRedirects()
         )
-        const response = yield* client.get("/redirect").pipe(
-          Effect.flatMap((_) => _.text)
-        )
-        expect(response).toBe("test")
+        const response = yield* client.get("/redirect")
+        // Fetch follows redirects natively and retains the original request.
+        expect(new URL(response.request.url).pathname).toBe("/redirect")
+        expect(new URL(response.url).pathname).toBe("/")
+        assert.strictEqual(new URL(response.url).search, "?value=a%23b")
+        assert.strictEqual(new URL(response.url).hash, "")
+        expect(yield* response.text).toBe("test")
       }).pipe(Effect.provide(testLayer)))
 
     it.effect("stream", () =>
