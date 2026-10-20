@@ -2233,9 +2233,7 @@ export const PaneMetadataReportInput = Schema.Struct({
   title: Schema.OptionFromOptionalKey(Schema.String),
   displayAgent: Schema.OptionFromOptionalKey(Schema.String),
   stateLabels: Schema.OptionFromOptionalKey(
-    Schema.Record(AgentStatus, Schema.optionalKey(Schema.String)).annotate({
-      parseOptions: { onExcessProperty: "error" },
-    }),
+    Schema.Record(AgentStatus, Schema.optionalKey(Schema.String)),
   ),
   tokens: Schema.OptionFromOptionalKey(HerdrMetadataTokenPatch),
   clearTitle: Schema.OptionFromOptionalKey(Schema.Boolean),

@@ -3,7 +3,7 @@
  * @since 0.8.2
  */
 import { Effect, type FileSystem, type Scope } from "effect";
-import type { ChildProcessSpawner } from "effect/unstable/process";
+import type { ChildProcessSpawner } from "effect/process";
 import type { TestContext } from "vite-plus/test";
 import { verificationNodeLayer } from "./sdk-verification-process.mjs";
 

@@ -1,5 +1,5 @@
 import { Duration, Effect, Option, Schema } from "effect";
-import { FastCheck } from "effect/testing";
+import * as FastCheck from "fast-check";
 import { expect, test } from "vite-plus/test";
 import {
   AgentName,
@@ -68,7 +68,7 @@ test("state labels accept any subset of known statuses and reject unknown names"
   for (const key of ["paused", "workng", "Working", "", "__proto__"]) {
     expect(
       Option.isNone(
-        Schema.decodeUnknownOption(PaneMetadataReportInput)({
+        Schema.decodeUnknownOption(PaneMetadataReportInput, { onExcessProperty: "error" })({
           source: "fixture",
           stateLabels: Object.fromEntries([[key, "Busy"]]),
         }),
@@ -310,6 +310,12 @@ test("invalid targets and metadata fail at SDK boundaries before any socket requ
             stateLabels: { working: "Busy" },
             tokens: { removed: null },
           });
+          const widenedReport = {
+            source: "fixture",
+            stateLabels: { working: "Busy" },
+            extra: true,
+          };
+          yield* sdk.panes.reportMetadata(paneId, widenedReport);
           yield* sdk.agents.get({ kind: "pane", paneId });
           yield* sdk.agents.focus({ kind: "agent", name: "worker" });
         }).pipe(

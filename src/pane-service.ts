@@ -133,6 +133,11 @@ const parsePaneLabel = Schema.decodeEffect(Schema.String);
 const parsePaneLayoutSnapshot = Schema.decodeUnknownEffect(PaneLayoutSnapshot);
 const parsePaneListInput = Schema.decodeEffect(PaneListInput);
 const parsePaneMetadataReportInput = Schema.decodeEffect(PaneMetadataReportInput);
+// Unknown top-level keys stay ignored; only state label names are closed.
+const parsePaneMetadataStateLabels = Schema.decodeEffect(
+  Schema.Struct({ stateLabels: PaneMetadataReportInput.fields.stateLabels }),
+  { onExcessProperty: "error" },
+);
 const parsePaneMoveInput = Schema.decodeEffect(PaneMoveInput);
 const parsePaneMoveResult = Schema.decodeUnknownEffect(PaneMoveResult);
 const parsePaneNeighborResult = Schema.decodeUnknownEffect(PaneNeighborResult);
@@ -916,6 +921,10 @@ export const makePaneService = Effect.gen(function* () {
           parsePaneMetadataReportInput,
           input,
         );
+        if (input.stateLabels !== undefined)
+          yield* decodeHerdrInput("PaneService.reportMetadata", parsePaneMetadataStateLabels, {
+            stateLabels: input.stateLabels,
+          });
         const base = {
           paneId: id,
           source: parsed.source,
