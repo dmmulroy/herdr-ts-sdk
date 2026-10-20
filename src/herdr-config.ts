@@ -142,12 +142,12 @@ export class HerdrConfig extends Context.Service<HerdrConfig, IHerdrConfig>()(
 ) {}
 
 const ambientHerdrConfig = Config.all({
-  socketPath: Config.option(Config.string("HERDR_SOCKET_PATH")),
-  session: Config.option(Config.string("HERDR_SESSION")),
-  configDirectory: Config.option(Config.string("HERDR_CONFIG_DIR")),
-  xdgConfigHome: Config.option(Config.string("XDG_CONFIG_HOME")),
-  appData: Config.option(Config.string("APPDATA")),
-  requestTimeout: Config.option(Config.string("HERDR_REQUEST_TIMEOUT")),
+  socketPath: Config.option(Config.String("HERDR_SOCKET_PATH")),
+  session: Config.option(Config.String("HERDR_SESSION")),
+  configDirectory: Config.option(Config.String("HERDR_CONFIG_DIR")),
+  xdgConfigHome: Config.option(Config.String("XDG_CONFIG_HOME")),
+  appData: Config.option(Config.String("APPDATA")),
+  requestTimeout: Config.option(Config.String("HERDR_REQUEST_TIMEOUT")),
 });
 
 type AmbientHerdrConfig = Config.Success<typeof ambientHerdrConfig>;
@@ -160,7 +160,7 @@ type ParsedHerdrConfigOptions = typeof HerdrConfigOptions.Type;
  * @since 0.8.2
  */
 export const herdrConfigRecipe: Config.Config<IHerdrConfig> = ambientHerdrConfig.pipe(
-  Config.mapOrFail((ambient) =>
+  Config.mapEffect((ambient) =>
     resolveHerdrConfig({}, ambient).pipe(Effect.mapError((cause) => new Config.ConfigError(cause))),
   ),
 );

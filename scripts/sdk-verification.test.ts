@@ -39,7 +39,7 @@ function runVerificationTest<A, E>(
     A,
     E,
     | FileSystem.FileSystem
-    | import("effect/unstable/process/ChildProcessSpawner").ChildProcessSpawner
+    | import("effect/process/ChildProcessSpawner").ChildProcessSpawner
     | import("effect/Scope").Scope
   >,
 ) {

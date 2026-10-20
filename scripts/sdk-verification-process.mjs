@@ -1,6 +1,6 @@
 import { Cause, Console, Data, Effect, Exit, Layer, Stream } from "effect";
 import { sdkTraceChildEnvironment, traceSdkExecution } from "./sdk-telemetry.mjs";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import * as NodeChildProcessSpawner from "@effect/platform-node-shared/NodeChildProcessSpawner";
 import * as NodeFileSystem from "@effect/platform-node-shared/NodeFileSystem";
 import * as NodePath from "@effect/platform-node-shared/NodePath";

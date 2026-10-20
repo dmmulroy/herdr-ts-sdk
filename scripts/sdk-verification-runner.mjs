@@ -102,7 +102,7 @@ const verifySdk = Effect.gen(function* () {
   /** @param {ReadonlyArray<string>} args */
   const node = (args) =>
     runVerificationCommand(process.execPath, args, { cwd: directory, timeout });
-  /** @type {Array<[string, Effect.Effect<{status: string, detail: string}, import("effect/PlatformError").PlatformError, FileSystem.FileSystem | import("effect/unstable/process/ChildProcessSpawner").ChildProcessSpawner>]>} */
+  /** @type {Array<[string, Effect.Effect<{status: string, detail: string}, import("effect/PlatformError").PlatformError, FileSystem.FileSystem | import("effect/process/ChildProcessSpawner").ChildProcessSpawner>]>} */
   const stages =
     mode === "generated"
       ? []

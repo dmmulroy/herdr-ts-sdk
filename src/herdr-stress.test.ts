@@ -1,6 +1,7 @@
 import { NodeSocket } from "@effect/platform-node-shared";
 import { Deferred, Duration, Effect, Exit, Fiber, Schema, Stream } from "effect";
-import { FastCheck } from "effect/testing";
+import { Socket } from "effect/socket";
+import * as FastCheck from "fast-check";
 import { beforeEach, expect, test } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
 import { HerdrAbsolutePath, HerdrSdk, herdrSdkLayerFromOptions } from "./index.ts";
@@ -295,50 +296,55 @@ test(
                     let expectedBytes: number | undefined;
                     // The fixture owns the accepted socket; this adapter owns only its read listeners.
                     const graphicsSocket = yield* NodeSocket.fromDuplex(Effect.succeed(socket));
-                    yield* graphicsSocket
-                      .run(
-                        (chunk) =>
-                          Effect.gen(function* () {
-                            buffered = Buffer.concat([buffered, chunk]);
-                            while (buffered.length > 0) {
-                              if (expectedBytes === undefined) {
-                                const newline = buffered.indexOf(10);
-                                if (newline < 0) return;
-                                const header = parseStressGraphicsHeader(
-                                  JSON.parse(buffered.subarray(0, newline).toString("utf8")),
-                                );
-                                expectedBytes = header.data_length;
-                                buffered = buffered.subarray(newline + 1);
-                              }
-                              if (buffered.length < expectedBytes) return;
-                              received.push(Buffer.from(buffered.subarray(0, expectedBytes)));
-                              buffered = buffered.subarray(expectedBytes);
-                              expectedBytes = undefined;
-                              if (received.length === payloads.length) {
-                                expect(buffered.length).toBe(0);
-                                yield* Deferred.succeed(framesReceived, undefined);
-                              }
-                            }
-                          }),
-                        {
-                          // NodeSocket's readiness hook has no error channel; catchCause below
-                          // forwards even a failed handshake to the test's completion signal.
-                          onOpen: server
-                            .writeChunks(socket, [Buffer.from(JSON.stringify(response) + "\n")])
-                            .pipe(Effect.orDie),
-                        },
-                      )
-                      .pipe(
-                        Effect.catchCause((cause) =>
-                          Effect.gen(function* () {
-                            const error = new Error("Herdr stress graphics frame parsing failed", {
-                              cause,
-                            });
-                            yield* Deferred.fail(framesReceived, error);
-                            yield* Deferred.fail(graphicsReadCompleted, error);
-                          }),
+                    const consumeChunk = (chunk: Uint8Array) =>
+                      Effect.gen(function* () {
+                        buffered = Buffer.concat([buffered, chunk]);
+                        while (buffered.length > 0) {
+                          if (expectedBytes === undefined) {
+                            const newline = buffered.indexOf(10);
+                            if (newline < 0) return;
+                            const header = parseStressGraphicsHeader(
+                              JSON.parse(buffered.subarray(0, newline).toString("utf8")),
+                            );
+                            expectedBytes = header.data_length;
+                            buffered = buffered.subarray(newline + 1);
+                          }
+                          if (buffered.length < expectedBytes) return;
+                          received.push(Buffer.from(buffered.subarray(0, expectedBytes)));
+                          buffered = buffered.subarray(expectedBytes);
+                          expectedBytes = undefined;
+                          if (received.length === payloads.length) {
+                            expect(buffered.length).toBe(0);
+                            yield* Deferred.succeed(framesReceived, undefined);
+                          }
+                        }
+                      });
+                    yield* Effect.gen(function* () {
+                      const pull = yield* Socket.readerBytes(graphicsSocket);
+                      yield* server.writeChunks(socket, [
+                        Buffer.from(JSON.stringify(response) + "\n"),
+                      ]);
+                      yield* pull.pipe(
+                        Effect.flatMap((chunks) =>
+                          Effect.forEach(chunks, consumeChunk, { discard: true }),
                         ),
+                        Effect.forever,
                       );
+                    }).pipe(
+                      Effect.scoped,
+                      Effect.catchReason("SocketError", "SocketCloseError", (reason, error) =>
+                        reason.code === 1000 ? Effect.void : Effect.fail(error),
+                      ),
+                      Effect.catchCause((cause) =>
+                        Effect.gen(function* () {
+                          const error = new Error("Herdr stress graphics frame parsing failed", {
+                            cause,
+                          });
+                          yield* Deferred.fail(framesReceived, error);
+                          yield* Deferred.fail(graphicsReadCompleted, error);
+                        }),
+                      ),
+                    );
                     expect(buffered.length).toBe(0);
                     expect(expectedBytes).toBeUndefined();
                     yield* Deferred.succeed(graphicsReadCompleted, undefined);

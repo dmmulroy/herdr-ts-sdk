@@ -3,8 +3,6 @@ allowBuilds:
 catalog:
   vite: npm:@voidzero-dev/vite-plus-core@0.2.6
   vite-plus: 0.2.6
-minimumReleaseAgeExclude:
-  - effect@4.0.0-beta.105
 overrides:
   vite: "catalog:"
 peerDependencyRules:

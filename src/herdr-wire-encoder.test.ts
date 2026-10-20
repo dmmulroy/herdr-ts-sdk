@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { FastCheck } from "effect/testing";
+import * as FastCheck from "fast-check";
 import { expect, test } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
 import {
