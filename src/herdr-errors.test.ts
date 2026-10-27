@@ -1,11 +1,12 @@
 import { expect, test } from "vite-plus/test";
 import {
   HerdrConfigurationError,
-  HerdrImageTooLarge,
+  HerdrEventsLost,
   HerdrInvalidInput,
   HerdrInvalidResponse,
   HerdrRequestTimeout,
   HerdrServerError,
+  HerdrSshAgentRegistrationClosed,
   HerdrTransportError,
   HerdrUnsupportedProtocol,
 } from "./herdr-errors.ts";
@@ -19,7 +20,8 @@ test("typed errors preserve stable tags and structured diagnostic context", () =
     new HerdrInvalidResponse("schema_mismatch", "request-1", new Error("bad response")),
     new HerdrUnsupportedProtocol(0, 22, "request-1"),
     new HerdrServerError("future_server_code", "future failure", "request-1"),
-    new HerdrImageTooLarge("graphics_stream", 17, 16, "request-1"),
+    new HerdrEventsLost("event subscription fell behind", "request-1"),
+    new HerdrSshAgentRegistrationClosed("request-1"),
   ] as const;
 
   expect(errors.map((error) => error._tag)).toEqual([
@@ -30,10 +32,15 @@ test("typed errors preserve stable tags and structured diagnostic context", () =
     "HerdrInvalidResponse",
     "HerdrUnsupportedProtocol",
     "HerdrServerError",
-    "HerdrImageTooLarge",
+    "HerdrEventsLost",
+    "HerdrSshAgentRegistrationClosed",
   ]);
   expect(errors[2]).toMatchObject({ operation: "request", reason: "connect" });
   expect(errors[6]).toMatchObject({ serverCode: "future_server_code", requestId: "request-1" });
+  expect(errors[7]).toMatchObject({
+    serverMessage: "event subscription fell behind",
+    requestId: "request-1",
+  });
 });
 
 test("typed errors own searchable stable message prefixes", () => {
@@ -43,8 +50,9 @@ test("typed errors own searchable stable message prefixes", () => {
     "request-2",
     new Error("closed"),
   );
-  const timeout = new HerdrRequestTimeout("graphics_write", "request-2", 1000);
+  const timeout = new HerdrRequestTimeout("ssh_agent_registration", "request-2", 1000);
 
   expect(transport.message.startsWith("Herdr transport failed")).toBe(true);
   expect(timeout.message.startsWith("Herdr request timed out")).toBe(true);
+  expect(new HerdrEventsLost("lost", "request-2").message).toContain("session.snapshot");
 });

@@ -1,5 +1,5 @@
-import { NodeSocket } from "@effect/platform-node-shared";
-import { Deferred, Duration, Effect, Exit, Fiber, Schema, Stream } from "effect";
+import type { Socket } from "node:net";
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Schema, Stream } from "effect";
 import { FastCheck } from "effect/testing";
 import { beforeEach, expect, test } from "vite-plus/test";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
@@ -249,28 +249,16 @@ test(
   stressTimeoutMs,
 );
 
-const parseStressGraphicsHeader = Schema.decodeUnknownSync(
-  Schema.Struct({
-    format: Schema.Literal("png"),
-    image_width: Schema.Literal(1),
-    image_height: Schema.Literal(1),
-    data_length: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 131072 })),
-  }),
-);
-
 test(
-  "seeded stress: concurrent graphics writes preserve the complete payload multiset",
+  "seeded stress: SSH agent leases release their sockets however each lease ends",
   (context) =>
     FastCheck.assert(
       FastCheck.asyncProperty(
-        FastCheck.array(
-          FastCheck.record({
-            length: FastCheck.constantFrom(1, 255, 4096, 65537, 131072),
-            salt: FastCheck.integer({ min: 0, max: 255 }),
-          }),
-          { minLength: 3, maxLength: 7 },
-        ),
-        (frames) =>
+        FastCheck.array(FastCheck.constantFrom("release", "interrupt", "server_close"), {
+          minLength: 1,
+          maxLength: 6,
+        }),
+        (endings) =>
           runHerdrTest(
             context,
             Effect.scoped(
@@ -279,102 +267,54 @@ test(
                   "sdk.stress.seed": seed,
                   "sdk.stress.repetitions": repetitions,
                 });
-                const payloads = frames.map(({ length, salt }) =>
-                  Buffer.from(
-                    Uint8Array.from({ length }, (_, offset) => (offset * 31 + salt) % 256),
-                  ),
-                );
-                const received: Buffer[] = [];
-                const framesReceived = yield* Deferred.make<void, Error>();
-                const graphicsReadCompleted = yield* Deferred.make<void, Error>();
-                const server: HerdrTestServer = yield* startHerdrTestServer((request, socket) =>
-                  Effect.gen(function* () {
-                    const response = makeHerdrSuccessResponse(request);
-                    if (request.method !== "pane.graphics.stream") return response;
-                    let buffered = Buffer.alloc(0);
-                    let expectedBytes: number | undefined;
-                    // The fixture owns the accepted socket; this adapter owns only its read listeners.
-                    const graphicsSocket = yield* NodeSocket.fromDuplex(Effect.succeed(socket));
-                    yield* graphicsSocket
-                      .run(
-                        (chunk) =>
-                          Effect.gen(function* () {
-                            buffered = Buffer.concat([buffered, chunk]);
-                            while (buffered.length > 0) {
-                              if (expectedBytes === undefined) {
-                                const newline = buffered.indexOf(10);
-                                if (newline < 0) return;
-                                const header = parseStressGraphicsHeader(
-                                  JSON.parse(buffered.subarray(0, newline).toString("utf8")),
-                                );
-                                expectedBytes = header.data_length;
-                                buffered = buffered.subarray(newline + 1);
-                              }
-                              if (buffered.length < expectedBytes) return;
-                              received.push(Buffer.from(buffered.subarray(0, expectedBytes)));
-                              buffered = buffered.subarray(expectedBytes);
-                              expectedBytes = undefined;
-                              if (received.length === payloads.length) {
-                                expect(buffered.length).toBe(0);
-                                yield* Deferred.succeed(framesReceived, undefined);
-                              }
-                            }
-                          }),
-                        {
-                          // NodeSocket's readiness hook has no error channel; catchCause below
-                          // forwards even a failed handshake to the test's completion signal.
-                          onOpen: server
-                            .writeChunks(socket, [Buffer.from(JSON.stringify(response) + "\n")])
-                            .pipe(Effect.orDie),
-                        },
-                      )
-                      .pipe(
-                        Effect.catchCause((cause) =>
-                          Effect.gen(function* () {
-                            const error = new Error("Herdr stress graphics frame parsing failed", {
-                              cause,
-                            });
-                            yield* Deferred.fail(framesReceived, error);
-                            yield* Deferred.fail(graphicsReadCompleted, error);
-                          }),
-                        ),
-                      );
-                    expect(buffered.length).toBe(0);
-                    expect(expectedBytes).toBeUndefined();
-                    yield* Deferred.succeed(graphicsReadCompleted, undefined);
+                const leaseSockets = new Map<string, Socket>();
+                const server = yield* startHerdrTestServer((request, socket) =>
+                  Effect.sync(() => {
+                    if (request.method === "server.ssh_agent.register")
+                      leaseSockets.set(request.params.socket_path, socket);
+                    return makeHerdrSuccessResponse(request);
                   }),
                 );
+                const accepted = yield* Effect.forEach(endings, () => Deferred.make<void>());
                 yield* Effect.scoped(
                   Effect.gen(function* () {
                     const herdr = yield* HerdrSdk;
-                    const writer = yield* herdr.panes.graphics.openStream(
-                      herdr.ids.pane("pane-stress"),
+                    const leases = yield* Effect.forEach(endings, (ending, index) =>
+                      herdr.server.sshAgent
+                        .withRegistration({ socketPath: `/tmp/stress-agent-${index}.sock` }, () =>
+                          Effect.gen(function* () {
+                            const ready = accepted.at(index);
+                            if (ready === undefined) throw new Error("Missing stress lease gate");
+                            yield* Deferred.succeed(ready, undefined);
+                            if (ending === "release") return index;
+                            return yield* Effect.never;
+                          }),
+                        )
+                        .pipe(Effect.exit, Effect.forkScoped),
                     );
-                    const startWrites = yield* Deferred.make<void>();
-                    const writes = yield* Effect.forEach(payloads, (data) =>
-                      Effect.gen(function* () {
-                        yield* Deferred.await(startWrites);
-                        yield* writer.write({ format: "png", imageWidth: 1, imageHeight: 1, data });
-                      }).pipe(Effect.forkScoped),
-                    );
-                    yield* Deferred.succeed(startWrites, undefined);
-                    yield* Effect.forEach(writes, Fiber.join, { concurrency: "unbounded" });
-                    yield* Deferred.await(framesReceived);
+                    for (const [index, ending] of endings.entries()) {
+                      const lease = leases.at(index);
+                      const ready = accepted.at(index);
+                      if (lease === undefined || ready === undefined)
+                        throw new Error("Missing stress lease");
+                      yield* Deferred.await(ready);
+                      if (ending === "interrupt") {
+                        yield* Fiber.interrupt(lease);
+                        continue;
+                      }
+                      if (ending === "server_close")
+                        leaseSockets.get(`/tmp/stress-agent-${index}.sock`)?.destroy();
+                      const exit = yield* Fiber.join(lease);
+                      if (ending === "release") expect(exit).toEqual(Exit.succeed(index));
+                      else
+                        expect(Exit.isFailure(exit) && Cause.squash(exit.cause)).toMatchObject({
+                          _tag: "HerdrSshAgentRegistrationClosed",
+                        });
+                    }
                   }),
                 ).pipe(provideStressSdk(server.socketPath));
-                yield* Deferred.await(graphicsReadCompleted);
-                yield* server.waitFor("close", 2);
+                yield* server.waitFor("close", endings.length + 1);
                 expect(server.openSocketCount()).toBe(0);
-                expect(received).toHaveLength(payloads.length);
-                const sortedReceived = received.sort((left, right) => Buffer.compare(left, right));
-                for (const [index, expected] of [...payloads]
-                  .sort((left, right) => Buffer.compare(left, right))
-                  .entries()) {
-                  expect(
-                    sortedReceived.at(index)?.equals(expected),
-                    `complete graphics payload ${index}`,
-                  ).toBe(true);
-                }
               }),
             ).pipe(Effect.timeout("3 seconds")),
           ),

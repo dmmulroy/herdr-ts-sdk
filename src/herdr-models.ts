@@ -1,5 +1,5 @@
 /**
- * Defines public Herdr resource, input, result, event, and graphics schemas.
+ * Defines public Herdr resource, input, result, and event schemas.
  *
  * Each schema owns runtime decoding and its corresponding TypeScript model so protocol data becomes normalized domain values at SDK boundaries.
  *
@@ -10,13 +10,13 @@ import {
   AgentName,
   HerdrAbsolutePath,
   HerdrEnvironment,
-  HerdrImageDimension,
   HerdrInsertIndex,
   HerdrMetadataTokenPatch,
   HerdrMetadataTokens,
   HerdrMetadataTtl,
   HerdrMilliseconds,
   HerdrPopupSize,
+  HerdrResumeArgv,
   HerdrRevision,
   HerdrSplitRatio,
   HerdrStateChangeSequence,
@@ -121,6 +121,10 @@ export const ServerCapabilities = Schema.Struct({
   healthCheck: Schema.optionalKey(Schema.Boolean).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(false), { encodingStrategy: "omit" }),
   ),
+  /** True when this local server accepts connection-scoped SSH agent registration. */
+  sshAgentRegistration: Schema.optionalKey(Schema.Boolean).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(false), { encodingStrategy: "omit" }),
+  ),
 }).pipe(
   Schema.encodeKeys({
     liveHandoff: "live_handoff",
@@ -128,6 +132,7 @@ export const ServerCapabilities = Schema.Struct({
     endpointProtocolGeneration: "endpoint_protocol_generation",
     surfaceInterest: "surface_interest",
     healthCheck: "health_check",
+    sshAgentRegistration: "ssh_agent_registration",
   }),
 );
 
@@ -420,6 +425,8 @@ export const Pane = Schema.Struct({
   focused: Schema.Boolean,
   cwd: optionalAbsolutePath,
   foregroundCwd: optionalAbsolutePath,
+  /** Why Herdr could not restore this pane's saved shell or directory, when restore failed. */
+  restoreError: optionalString,
   label: optionalString,
   agent: optionalString,
   title: optionalString,
@@ -443,6 +450,7 @@ export const Pane = Schema.Struct({
     workspaceId: "workspace_id",
     tabId: "tab_id",
     foregroundCwd: "foreground_cwd",
+    restoreError: "restore_error",
     terminalTitle: "terminal_title",
     terminalTitleStripped: "terminal_title_stripped",
     displayAgent: "display_agent",
@@ -500,6 +508,11 @@ export const Agent = Schema.Struct({
       encodingStrategy: "omit",
     }),
   ),
+  /**
+   * Set when the current idle transition completed work, independent of who has viewed it.
+   * Equals that transition's `stateChangeSequence`; startup, restore, and session changes leave it unset.
+   */
+  completionSequence: Schema.OptionFromOptionalNullOr(HerdrStateChangeSequence),
   cwd: optionalAbsolutePath,
   foregroundCwd: optionalAbsolutePath,
   revision: HerdrRevision,
@@ -519,6 +532,7 @@ export const Agent = Schema.Struct({
     launchPending: "launch_pending",
     interactiveReady: "interactive_ready",
     stateChangeSequence: "state_change_seq",
+    completionSequence: "completion_seq",
     foregroundCwd: "foreground_cwd",
   }),
 );
@@ -700,6 +714,41 @@ export interface ServerLiveHandoffInput extends Schema.Schema.Type<typeof Server
  */
 export interface ServerLiveHandoffInputEncoded extends Schema.Codec.Encoded<
   typeof ServerLiveHandoffInput
+> {}
+
+/**
+ * SSH agent socket offered to Herdr panes for as long as one registration connection stays open.
+ *
+ * Panes reach agents through Herdr's session-local agent address. It keeps a working agent the
+ * server inherited, otherwise selects the earliest live registration, so registering does not
+ * displace an agent that is already working.
+ *
+ * @category schemas
+ * @since 0.9.5
+ */
+export const ServerSshAgentRegisterInput = Schema.Struct({
+  /** Absolute agent socket owned by the same user, on the host running the Herdr server. */
+  socketPath: HerdrAbsolutePath,
+});
+
+/**
+ * Normalized SSH agent registration request.
+ *
+ * @category models
+ * @since 0.9.5
+ */
+export interface ServerSshAgentRegisterInput extends Schema.Schema.Type<
+  typeof ServerSshAgentRegisterInput
+> {}
+
+/**
+ * Ergonomic SSH agent registration request accepted by the server service.
+ *
+ * @category models
+ * @since 0.9.5
+ */
+export interface ServerSshAgentRegisterInputEncoded extends Schema.Codec.Encoded<
+  typeof ServerSshAgentRegisterInput
 > {}
 
 /**
@@ -1658,72 +1707,6 @@ export const PaneResizeResult = Schema.Struct({
 export interface PaneResizeResult extends Schema.Schema.Type<typeof PaneResizeResult> {}
 
 /**
- * Direct-file pixel formats advertised and accepted by Herdr graphics streams.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsFileFormat = Schema.Literals(["rgba", "bgra"]);
-
-/**
- * Direct-file pixel formats advertised and accepted by Herdr graphics streams.
- *
- * @category models
- * @since 0.8.2
- */
-export type PaneGraphicsFileFormat = typeof PaneGraphicsFileFormat.Type;
-
-/**
- * Pane graphics rendering and file-frame capabilities.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsInfo = Schema.Struct({
-  cellWidthPx: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  cellHeightPx: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
-  paneVisible: Schema.Boolean,
-  fileFrameDirectory: Schema.OptionFromOptionalNullOr(HerdrAbsolutePath),
-  fileFrameFormats: Schema.optionalKey(Schema.Array(PaneGraphicsFileFormat)).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed([]), { encodingStrategy: "omit" }),
-  ),
-  fileFrameMaxBytes: Schema.OptionFromOptionalNullOr(Schema.Natural),
-  fileFrameDirectMaxBytes: Schema.OptionFromOptionalNullOr(Schema.Natural),
-  fileFrameDamage: Schema.optionalKey(Schema.Boolean).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(false), { encodingStrategy: "omit" }),
-  ),
-  maxLayersPerPane: Schema.optionalKey(Schema.Natural).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(0), { encodingStrategy: "omit" }),
-  ),
-  pixelMouse: Schema.optionalKey(Schema.Boolean).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(false), { encodingStrategy: "omit" }),
-  ),
-  fileFrameTransport: Schema.OptionFromOptionalNullOr(Schema.String),
-}).pipe(
-  Schema.encodeKeys({
-    cellWidthPx: "cell_width_px",
-    cellHeightPx: "cell_height_px",
-    paneVisible: "pane_visible",
-    fileFrameDirectory: "file_frame_directory",
-    fileFrameFormats: "file_frame_formats",
-    fileFrameMaxBytes: "file_frame_max_bytes",
-    fileFrameDirectMaxBytes: "file_frame_direct_max_bytes",
-    fileFrameDamage: "file_frame_damage",
-    maxLayersPerPane: "max_layers_per_pane",
-    pixelMouse: "pixel_mouse",
-    fileFrameTransport: "file_frame_transport",
-  }),
-);
-
-/**
- * Pane graphics rendering and file-frame capabilities.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsInfo extends Schema.Schema.Type<typeof PaneGraphicsInfo> {}
-
-/**
  * Destination for right-click input handled by a pane.
  *
  * @category schemas
@@ -2142,6 +2125,9 @@ type PaneAgentSessionSelection =
 /**
  * Agent-state report attached to one pane; select its native session by at most one ID or path.
  *
+ * `resumeArgv` is kept only while the same `source` and `agent` hold the pane, and takes
+ * precedence over Herdr's built-in resume command for that agent.
+ *
  * @category schemas
  * @since 0.8.2
  */
@@ -2153,6 +2139,8 @@ export const PaneAgentReportInput = Schema.Struct({
   sequence: Schema.OptionFromOptionalKey(HerdrStateChangeSequence),
   sessionId: Schema.OptionFromOptionalKey(Schema.String),
   sessionPath: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
+  /** Command Herdr runs to resume this session after a server restart; see `HerdrResumeArgv`. */
+  resumeArgv: Schema.OptionFromOptionalKey(HerdrResumeArgv),
 }).pipe(
   Schema.refine(
     (value): value is typeof value & PaneAgentSessionSelection =>
@@ -2182,6 +2170,9 @@ export interface PaneAgentReportInputEncoded extends Schema.Codec.Encoded<
 /**
  * Agent-session report attached to one pane.
  *
+ * Attaching `resumeArgv` requires the reporter to hold the pane through an agent-state report
+ * first; otherwise Herdr rejects the report with `resume_not_accepted`.
+ *
  * @category schemas
  * @since 0.8.2
  */
@@ -2192,6 +2183,8 @@ export const PaneAgentSessionReportInput = Schema.Struct({
   sessionStartSource: Schema.OptionFromOptionalKey(Schema.String),
   sessionId: Schema.OptionFromOptionalKey(Schema.String),
   sessionPath: Schema.OptionFromOptionalKey(HerdrAbsolutePath),
+  /** Command Herdr runs to resume this session after a server restart; see `HerdrResumeArgv`. */
+  resumeArgv: Schema.OptionFromOptionalKey(HerdrResumeArgv),
 }).pipe(
   Schema.refine(
     (value): value is typeof value & PaneAgentSessionSelection =>
@@ -2324,205 +2317,6 @@ export interface PaneReleaseAgentInput extends Schema.Schema.Type<typeof PaneRel
  */
 export interface PaneReleaseAgentInputEncoded extends Schema.Codec.Encoded<
   typeof PaneReleaseAgentInput
-> {}
-
-/**
- * Placement coordinates for a pane graphics frame.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsPlacement = Schema.Struct({
-  viewportCol: Schema.OptionFromOptionalKey(Schema.Natural),
-  viewportRow: Schema.OptionFromOptionalKey(Schema.Natural),
-  gridCols: Schema.OptionFromOptionalKey(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThan(0)),
-  ),
-  gridRows: Schema.OptionFromOptionalKey(
-    Schema.Finite.check(Schema.isInt(), Schema.isGreaterThan(0)),
-  ),
-});
-
-/**
- * Normalized placement coordinates for a pane graphics frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsPlacement extends Schema.Schema.Type<typeof PaneGraphicsPlacement> {}
-
-/**
- * Pane graphics pixel representation.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsFormat = Schema.Literals(["png", "rgb", "rgba", "bgra"]);
-
-/**
- * Pane graphics pixel representation.
- *
- * @category models
- * @since 0.8.2
- */
-export type PaneGraphicsFormat = typeof PaneGraphicsFormat.Type;
-
-const PaneGraphicsFrameFields = {
-  format: PaneGraphicsFormat,
-  imageWidth: HerdrImageDimension,
-  imageHeight: HerdrImageDimension,
-  data: Schema.Uint8Array,
-  placement: Schema.OptionFromOptionalKey(PaneGraphicsPlacement),
-};
-
-/**
- * Image frame accepted by a scoped pane graphics stream.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsFrame = Schema.Struct(PaneGraphicsFrameFields);
-
-/**
- * Normalized pane graphics image frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsFrame extends Schema.Schema.Type<typeof PaneGraphicsFrame> {}
-
-/**
- * Ergonomic pane graphics image frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsFrameEncoded extends Schema.Codec.Encoded<typeof PaneGraphicsFrame> {}
-
-/**
- * One-shot image frame with optional layer placement controls.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsSetFrame = Schema.Struct({
-  ...PaneGraphicsFrameFields,
-  layerId: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
-  zIndex: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt())),
-});
-
-/**
- * Normalized one-shot pane graphics frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsSetFrame extends Schema.Schema.Type<typeof PaneGraphicsSetFrame> {}
-
-/**
- * Ergonomic one-shot pane graphics frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsSetFrameEncoded extends Schema.Codec.Encoded<
-  typeof PaneGraphicsSetFrame
-> {}
-
-/**
- * Optional layer selected by a graphics operation.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsLayerInput = Schema.Struct({
-  layerId: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
-});
-
-/**
- * Ergonomic graphics-layer selection.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsLayerInputEncoded extends Schema.Codec.Encoded<
-  typeof PaneGraphicsLayerInput
-> {}
-
-/**
- * Layer and z-index selected for a scoped graphics stream.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsStreamInput = Schema.Struct({
-  layerId: Schema.OptionFromOptionalKey(Schema.NonEmptyString),
-  zIndex: Schema.OptionFromOptionalKey(Schema.Finite.check(Schema.isInt())),
-});
-
-/**
- * Ergonomic scoped graphics-stream selection.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsStreamInputEncoded extends Schema.Codec.Encoded<
-  typeof PaneGraphicsStreamInput
-> {}
-
-/**
- * Immutable direct-file frame accepted by a scoped graphics stream.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsFileFrame = Schema.Struct({
-  format: PaneGraphicsFileFormat,
-  imageWidth: HerdrImageDimension,
-  imageHeight: HerdrImageDimension,
-  filePath: HerdrAbsolutePath,
-  sequence: Schema.Natural,
-  revision: Schema.Natural,
-  placement: Schema.OptionFromOptionalKey(PaneGraphicsPlacement),
-});
-
-/**
- * Normalized direct-file pane graphics frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsFileFrame extends Schema.Schema.Type<typeof PaneGraphicsFileFrame> {}
-
-/**
- * Ergonomic direct-file pane graphics frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsFileFrameEncoded extends Schema.Codec.Encoded<
-  typeof PaneGraphicsFileFrame
-> {}
-
-/**
- * Herdr acknowledgement for an accepted direct-file graphics frame.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const PaneGraphicsFrameAcknowledgement = Schema.Struct({
-  sequence: Schema.Natural,
-  revision: Schema.Natural,
-});
-
-/**
- * Herdr acknowledgement for an accepted direct-file graphics frame.
- *
- * @category models
- * @since 0.8.2
- */
-export interface PaneGraphicsFrameAcknowledgement extends Schema.Schema.Type<
-  typeof PaneGraphicsFrameAcknowledgement
 > {}
 
 interface LayoutPaneNodeValue {

@@ -27,7 +27,7 @@ test("root SDK exposes Stripe-style namespaces sharing one compatibility check",
               case "ping":
                 return {
                   id: request.id,
-                  result: { type: "pong", version: "0.9.0", protocol: 22 },
+                  result: { type: "pong", version: "0.9.5", protocol: 22 },
                 };
               case "workspace.list":
                 return {

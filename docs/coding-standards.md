@@ -94,7 +94,7 @@ including constructors that accept established options. Runtime composition norm
 but preserving these constructor exports takes precedence over copied rules from other projects.
 
 `HerdrSdk` aggregates the exact configured namespace service values and does not proxy every
-operation. Keep nested capabilities such as pane graphics and plugin resources parent-owned unless
+operation. Keep nested capabilities such as pane interaction and plugin resources parent-owned unless
 they gain an independent dependency or lifecycle.
 
 Represent ordinary internal absence with `Option` where the owning schema does so. Preserve
@@ -125,12 +125,12 @@ Expected failures use the narrowest truthful tagged error union. Translate known
 when variants need different policy; use `Effect.mapError` when the complete source channel has one
 intentional meaning, as in schema-boundary classification. Preserve interruption and distinguish
 transport failure, timeout, malformed response, unsupported protocol/result/event, server rejection,
-and uncertain graphics writes. Read [error guidance](errors.md) when changing failures, while using
+and lost subscription history. Read [error guidance](errors.md) when changing failures, while using
 Herdr SDK vocabulary and socket outcomes rather than HTTP or Overseer examples.
 
-Own sockets, event subscriptions, graphics writers, temporary directories, and child processes with
-`Scope` and acquisition/finalization. Ordinary requests use scoped acquisition around one socket.
-A timed-out or interrupted write invalidates its writer when the remote frame outcome is uncertain.
+Own sockets, event subscriptions, SSH agent registrations, temporary directories, and child
+processes with `Scope` and acquisition/finalization. Ordinary requests use scoped acquisition around
+one socket; connection-scoped leases release exactly when their owning Scope closes.
 Adapt unavoidable Node callbacks once at the edge; keep inner workflows Effect-native.
 
 Import stable Effect modules as named namespace exports from the `effect` package root:

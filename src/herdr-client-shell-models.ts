@@ -3,7 +3,7 @@
  * Endpoint, projection, surface, and terminal-content identities are intentionally distinct.
  * @since 0.9.0
  */
-import { Schema, SchemaGetter } from "effect";
+import { Schema, SchemaGetter, SchemaTransformation, Struct } from "effect";
 import {
   AgentName,
   HerdrCommandId,
@@ -12,7 +12,7 @@ import {
   TerminalId,
   WorkspaceId,
 } from "./herdr-domain.ts";
-import { AgentStatus } from "./herdr-models.ts";
+import { AgentStatus, AgentViewSetInput, type AgentViewSetInputEncoded } from "./herdr-models.ts";
 import { PaneContentRevision } from "./herdr-pane-interaction-models.ts";
 
 const U16 = Schema.Natural.check(Schema.isLessThanOrEqualTo(65535));
@@ -129,6 +129,11 @@ export const ClientShellAgent = Schema.Struct({
   terminalTitleStripped: optionalText,
   agentStatus: endpointAgentStatus,
   stateChangeSeq: SafeNatural,
+  /**
+   * Set when the current idle transition completed work (equal to that transition's
+   * `stateChangeSeq`), from the endpoint's revision-bound completion companion.
+   */
+  completionSeq: Schema.OptionFromOptionalKey(SafeNatural),
   stateLabels: TextPairs,
   tokens: TextPairs,
   focused: Schema.Boolean,
@@ -142,6 +147,7 @@ export const ClientShellAgent = Schema.Struct({
     terminalTitleStripped: "terminal_title_stripped",
     agentStatus: "agent_status",
     stateChangeSeq: "state_change_seq",
+    completionSeq: "completion_seq",
     stateLabels: "state_labels",
   }),
 );
@@ -191,8 +197,51 @@ export const ClientShellReleaseNotes = Schema.Struct({
 });
 /** Parsed endpoint release notes. @category models @since 0.9.0 */
 export type ClientShellReleaseNotes = typeof ClientShellReleaseNotes.Type;
-/** Whole replacement projection for one endpoint boot. @category schemas @since 0.9.0 */
-export const ClientShellProjection = Schema.Struct({
+/** Completed-work sequences by pane, bound to the projection with the same boot and revision. @category schemas @since 0.9.5 */
+export const ClientShellAgentCompletions = Schema.Struct({
+  bootId: EndpointBootId,
+  revision: ProjectionRevision,
+  completions: Schema.Record(Schema.String, SafeNatural),
+}).pipe(Schema.encodeKeys({ bootId: "boot_id" }));
+/** Parsed agent-completion companion. @category models @since 0.9.5 */
+export type ClientShellAgentCompletions = typeof ClientShellAgentCompletions.Type;
+/**
+ * Agent-view companion envelope (`endpoint.agent-view.v1`) bound to the projection with the same
+ * boot and revision. The view stays opaque JSON here; missing or null means the view was cleared.
+ * @category schemas @since 0.9.5
+ */
+export const ClientShellAgentViewProjection = Schema.Struct({
+  bootId: EndpointBootId,
+  revision: ProjectionRevision,
+  view: Schema.OptionFromOptionalNullOr(Schema.Json),
+}).pipe(Schema.encodeKeys({ bootId: "boot_id" }));
+/** Parsed agent-view companion envelope. @category models @since 0.9.5 */
+export type ClientShellAgentViewProjection = typeof ClientShellAgentViewProjection.Type;
+/**
+ * Active agent view (filter and sort definition) for one projection: `none` when no view is set,
+ * `active` with the decoded definition, or `unrecognized` when the server sent a view this SDK
+ * cannot decode (for example a newer view-language addition).
+ * @category schemas @since 0.9.5
+ */
+export const ClientShellAgentView: Schema.Codec<ClientShellAgentView, ClientShellAgentViewEncoded> =
+  Schema.Union([
+    Schema.Struct({ status: Schema.Literal("none") }),
+    Schema.Struct({ status: Schema.Literal("active"), view: AgentViewSetInput }),
+    Schema.Struct({ status: Schema.Literal("unrecognized") }),
+  ]);
+/** Parsed projection agent view. @category models @since 0.9.5 */
+export type ClientShellAgentView =
+  | { readonly status: "none" }
+  | { readonly status: "active"; readonly view: AgentViewSetInput }
+  | { readonly status: "unrecognized" };
+/** Encoded projection agent view; the active view uses Herdr's wire agent-view keys. @category models @since 0.9.5 */
+export type ClientShellAgentViewEncoded =
+  | { readonly status: "none" }
+  | { readonly status: "active"; readonly view: AgentViewSetInputEncoded }
+  | { readonly status: "unrecognized" };
+const noClientShellAgentView = (): ClientShellAgentView => ({ status: "none" });
+// Mandatory `shell.snapshot.v1` payload only; companion-derived fields are attached afterwards.
+const ClientShellSnapshotPayload = Schema.Struct({
   bootId: EndpointBootId,
   revision: ProjectionRevision,
   configDiagnostic: optionalText,
@@ -236,6 +285,24 @@ export const ClientShellProjection = Schema.Struct({
     agentViewLabel: "agent_view_label",
     agentOrder: "agent_order",
   }),
+);
+/**
+ * Whole replacement projection for one endpoint boot. Decoding a `shell.snapshot.v1` payload yields
+ * `agentView: { status: "none" }`; the endpoint service attaches the snapshot's revision-bound
+ * `endpoint.agent-view.v1` companion. `agentView` is SDK-derived: it is never read from or written
+ * to the snapshot wire payload.
+ * @category schemas @since 0.9.0
+ */
+export const ClientShellProjection = ClientShellSnapshotPayload.pipe(
+  Schema.decodeTo(
+    Schema.toType(
+      ClientShellSnapshotPayload.to.mapFields(Struct.assign({ agentView: ClientShellAgentView })),
+    ),
+    SchemaTransformation.transform({
+      decode: (snapshot) => ({ ...snapshot, agentView: noClientShellAgentView() }),
+      encode: ({ agentView: _agentView, ...snapshot }) => snapshot,
+    }),
+  ),
 );
 /** Parsed immutable shell projection; commands remain meaningful only for its live boot. @category models @since 0.9.0 */
 export type ClientShellProjection = typeof ClientShellProjection.Type;

@@ -128,7 +128,7 @@ test(
             "src/herdr-learning.test.ts",
             "--trace",
             "--testNamePattern",
-            "^sdk learning: graphics-writer$",
+            "^sdk learning: ssh-agent-lease$",
           ],
           {
             cwd: repositoryDirectory,

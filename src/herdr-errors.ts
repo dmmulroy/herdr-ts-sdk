@@ -1,12 +1,11 @@
 /**
  * Defines the typed failures exposed by Herdr SDK operations.
  *
- * Schema-backed tagged errors distinguish configuration, input, transport, timeout, compatibility, server, response, event, and graphics failures for targeted recovery.
+ * Schema-backed tagged errors distinguish configuration, input, transport, timeout, compatibility, server, response, event, and SSH agent registration failures for targeted recovery.
  *
  * @since 0.8.2
  */
-import { Option, Schema } from "effect";
-import { HerdrByteLength } from "./herdr-domain.ts";
+import { Schema } from "effect";
 
 /**
  * Failure to decode or resolve Herdr SDK configuration.
@@ -70,8 +69,7 @@ export class HerdrTransportError extends Schema.TaggedError<HerdrTransportError>
       "request",
       "compatibility_check",
       "event_subscription",
-      "graphics_stream",
-      "graphics_write",
+      "ssh_agent_registration",
     ]),
     reason: Schema.Literals(["connect", "read", "write", "premature_close"]),
     requestId: Schema.String,
@@ -109,8 +107,7 @@ export class HerdrRequestTimeout extends Schema.TaggedError<HerdrRequestTimeout>
       "request",
       "compatibility_check",
       "event_subscription",
-      "graphics_stream",
-      "graphics_write",
+      "ssh_agent_registration",
     ]),
     requestId: Schema.String,
     timeoutMilliseconds: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -267,87 +264,49 @@ export class HerdrServerError extends Schema.TaggedError<HerdrServerError>()("He
 }
 
 /**
- * Graphics frame has invalid data or dimensions.
+ * Event subscription fell behind Herdr's retained history and was closed by the server.
+ *
+ * Cached state derived from the subscription is stale. Open a new subscription, wait for it to be
+ * accepted, then reconcile through authoritative reads such as `session.snapshot`.
  *
  * @category errors
- * @since 0.8.2
+ * @since 0.9.5
  */
-export class HerdrInvalidFrame extends Schema.TaggedError<HerdrInvalidFrame>()(
-  "HerdrInvalidFrame",
-  {
-    operation: Schema.Literals(["graphics_set", "graphics_stream"]),
-    reason: Schema.Literals(["empty_data", "schema_mismatch"]),
-    requestId: Schema.Option(Schema.String),
-    message: Schema.String,
-  },
-) {
-  /** Creates a graphics frame parse failure before bytes are written. */
-  constructor(
-    operation: HerdrInvalidFrame["operation"],
-    reason: HerdrInvalidFrame["reason"],
-    requestId?: string,
-  ) {
+export class HerdrEventsLost extends Schema.TaggedError<HerdrEventsLost>()("HerdrEventsLost", {
+  serverMessage: Schema.String,
+  requestId: Schema.String,
+  message: Schema.String,
+}) {
+  /** Creates a subscription overrun failure from the server's `events_lost` response. */
+  constructor(serverMessage: string, requestId: string) {
     super({
-      operation,
-      reason,
-      requestId: Option.fromNullishOr(requestId),
-      message: `Herdr graphics frame is invalid during ${operation}: ${reason}. Supply non-empty data with positive integer dimensions.`,
+      serverMessage,
+      requestId,
+      message:
+        "Herdr event subscription fell behind retained history and was closed; events were missed. Resubscribe, then reconcile cached state with session.snapshot.",
     });
   }
 }
 
 /**
- * Graphics image exceeds the byte limit for its write mode.
+ * Herdr ended a connection-scoped SSH agent registration before its owner released it.
  *
  * @category errors
- * @since 0.8.2
+ * @since 0.9.5
  */
-export class HerdrImageTooLarge extends Schema.TaggedError<HerdrImageTooLarge>()(
-  "HerdrImageTooLarge",
-  {
-    operation: Schema.Literals(["graphics_set", "graphics_stream"]),
-    actualBytes: HerdrByteLength,
-    maximumBytes: HerdrByteLength,
-    requestId: Schema.Option(Schema.String),
-    message: Schema.String,
-  },
-) {
-  /** Creates an oversized graphics image failure before socket I/O. */
-  constructor(
-    operation: HerdrImageTooLarge["operation"],
-    actualBytes: number,
-    maximumBytes: number,
-    requestId?: string,
-  ) {
-    super({
-      operation,
-      actualBytes: HerdrByteLength.make(actualBytes),
-      maximumBytes: HerdrByteLength.make(maximumBytes),
-      requestId: Option.fromNullishOr(requestId),
-      message: `Herdr graphics image is too large during ${operation}: received ${actualBytes} bytes, maximum ${maximumBytes} bytes. Reduce the image size and try again.`,
-    });
-  }
-}
-
-/**
- * Graphics writer was used after its owning scope closed.
- *
- * @category errors
- * @since 0.8.2
- */
-export class HerdrGraphicsStreamClosed extends Schema.TaggedError<HerdrGraphicsStreamClosed>()(
-  "HerdrGraphicsStreamClosed",
+export class HerdrSshAgentRegistrationClosed extends Schema.TaggedError<HerdrSshAgentRegistrationClosed>()(
+  "HerdrSshAgentRegistrationClosed",
   {
     requestId: Schema.String,
     message: Schema.String,
   },
 ) {
-  /** Creates a closed-resource failure for a graphics write. */
+  /** Creates a lease-ended failure when the server closes the registration connection. */
   constructor(requestId: string) {
     super({
       requestId,
       message:
-        "Herdr graphics stream is closed. Acquire a new writer inside an active Effect scope.",
+        "Herdr SSH agent registration ended because the server closed its connection. Herdr panes can no longer reach this agent through the registration; register it again if the server is still running.",
     });
   }
 }

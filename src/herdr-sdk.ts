@@ -122,7 +122,7 @@ export interface IHerdrSdk {
   readonly config: IHerdrConfig;
   /** Pure schema-owned identifier constructors. */
   readonly ids: IHerdrIds;
-  /** Server lifecycle and compatibility operations. */
+  /** Server lifecycle, compatibility, and SSH agent registration operations. */
   readonly server: IServerService;
   /** Session snapshot operations. */
   readonly session: ISessionService;
@@ -136,7 +136,7 @@ export interface IHerdrSdk {
   readonly worktrees: IWorktreeService;
   /** Tab operations. */
   readonly tabs: ITabService;
-  /** Pane and graphics operations. */
+  /** Pane lifecycle, terminal I/O, and interaction operations. */
   readonly panes: IPaneService;
   /** Declarative layout operations. */
   readonly layouts: ILayoutService;

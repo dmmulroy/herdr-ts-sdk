@@ -128,6 +128,10 @@ export const startEndpointTestServer = (
     readonly snapshot?: typeof projectionFixture;
     readonly fragmented?: boolean;
     readonly advertisedMethods?: readonly string[];
+    /** Completed-work sequences by pane sent, like Herdr 0.9.5, before the seed snapshot. */
+    readonly completions?: { readonly [paneId: string]: number };
+    /** Raw `view` JSON for an `endpoint.agent-view.v1` companion sent before the seed snapshot; omitted sends none. */
+    readonly agentView?: typeof Schema.Json.Type;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -181,23 +185,50 @@ export const startEndpointTestServer = (
                         "endpoint.welcome.v1",
                         JSON.stringify({
                           generation: 1,
-                          server_version: "0.9.0",
+                          server_version: "0.9.5",
                           snapshot_codec: "shell.snapshot.v1",
                           surface_codec: "shell.surface.v1",
                           input_codec: "shell.input.semantic.v1",
                           blob_codec: "shell.blob.v1",
                           methods: options.advertisedMethods ?? methods,
-                          capabilities: ["surface_interest", "health_check"],
+                          capabilities: [
+                            "surface_reuse",
+                            "surface_delta",
+                            "surface_scroll",
+                            "surface_interest",
+                            "presentation_effects_fence",
+                            "health_check",
+                            "agent_view_projection",
+                            "agent_completions",
+                          ],
                         }),
                       ),
                     );
+                    const seed = options.snapshot ?? projectionFixture;
+                    if (options.agentView !== undefined)
+                      yield* send(
+                        socket,
+                        fixtureControl(
+                          "endpoint.agent-view.v1",
+                          JSON.stringify({
+                            boot_id: seed.boot_id,
+                            revision: seed.revision,
+                            view: options.agentView,
+                          }),
+                        ),
+                      );
                     yield* send(
                       socket,
                       fixtureControl(
-                        "shell.snapshot.v1",
-                        JSON.stringify(options.snapshot ?? projectionFixture),
+                        "endpoint.agent-completions.v1",
+                        JSON.stringify({
+                          boot_id: seed.boot_id,
+                          revision: seed.revision,
+                          completions: options.completions ?? {},
+                        }),
                       ),
                     );
+                    yield* send(socket, fixtureControl("shell.snapshot.v1", JSON.stringify(seed)));
                   } else if (kind === "endpoint.health.ping.v1" && options.health !== false)
                     yield* send(socket, fixtureControl("endpoint.health.pong.v1", "{}"));
                 } else if (payload[0] === 15) {

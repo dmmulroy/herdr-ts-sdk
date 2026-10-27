@@ -1,8 +1,12 @@
-import { Effect } from "effect";
+import { Effect, type Scope } from "effect";
 import { expectTypeOf } from "vite-plus/test";
 import {
   type IHerdrSdk,
+  type ClientShellAgentView,
+  type ClientShellConnection,
   type ClientShellConnectInputEncoded,
+  type ClientShellProjection,
+  type HerdrEndpointFailure,
   type HerdrEndpointConnectError,
   type HerdrInvalidInput,
   type WorkspaceCreateOptionsEncoded,
@@ -50,6 +54,22 @@ const dependent = sdk.clientShell.withConnection(connectionInput, () => dependen
 expectTypeOf(dependent).toEqualTypeOf<
   Effect.Effect<number, HerdrEndpointConnectError | HerdrInvalidInput, "application-dependency">
 >();
-const graphics = sdk.panes.graphics.withStream(pane, () => Effect.succeed(42));
-expectTypeOf<Effect.Services<typeof graphics>>().toEqualTypeOf<never>();
+const registration = sdk.server.sshAgent.withRegistration({ socketPath: "/tmp/agent.sock" }, () =>
+  Effect.succeed(42),
+);
+expectTypeOf<Effect.Services<typeof registration>>().toEqualTypeOf<never>();
+expectTypeOf<Effect.Success<typeof registration>>().toEqualTypeOf<number>();
+const scopedRegistration = sdk.server.sshAgent.registerScoped({ socketPath: "/tmp/agent.sock" });
+expectTypeOf<Effect.Services<typeof scopedRegistration>>().toEqualTypeOf<Scope.Scope>();
 expectTypeOf<keyof WorkspaceCreateOptionsEncoded>().toEqualTypeOf<"focus" | "label" | "env">();
+
+declare const shell: ClientShellConnection;
+expectTypeOf(shell.setHostTheme({ kind: "appearance", appearance: "dark" })).toEqualTypeOf<
+  Effect.Effect<void, HerdrInvalidInput | HerdrEndpointFailure>
+>();
+// @ts-expect-error Host theme inputs use a domain discriminator, not a caller-authored _tag.
+shell.setHostTheme({ _tag: "Appearance", appearance: "dark" });
+// @ts-expect-error Foreground/background is the target of a default-color update, not its kind.
+shell.setHostTheme({ kind: "foreground", color: { r: 0, g: 0, b: 0 } });
+expectTypeOf<ClientShellProjection["agentView"]>().toEqualTypeOf<ClientShellAgentView>();
+expectTypeOf<ClientShellAgentView["status"]>().toEqualTypeOf<"none" | "active" | "unrecognized">();

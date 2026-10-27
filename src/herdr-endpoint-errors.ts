@@ -17,7 +17,7 @@ export class HerdrEndpointNegotiationError extends Schema.TaggedError<HerdrEndpo
   constructor(reason: HerdrEndpointNegotiationError["reason"]) {
     super({
       reason,
-      message: `Herdr endpoint negotiation failed: ${reason}. Use a compatible Herdr 0.9.0 endpoint.`,
+      message: `Herdr endpoint negotiation failed: ${reason}. Use a compatible Herdr 0.9.5 endpoint.`,
     });
   }
 }

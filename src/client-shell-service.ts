@@ -32,6 +32,7 @@ import {
   type HerdrTransportRequestError,
 } from "./herdr-transport.ts";
 import { HerdrInvalidInput } from "./herdr-errors.ts";
+import { AgentViewSetInput } from "./herdr-models.ts";
 import {
   CommandPaneInput,
   CommandTabInput,
@@ -49,6 +50,9 @@ import {
 import { decodeHerdrInput } from "./herdr-schema-boundary.ts";
 import { defineHerdrOperation } from "./herdr-effect-operation.ts";
 import {
+  ClientShellAgentCompletions,
+  ClientShellAgentViewProjection,
+  type ClientShellAgentView,
   ClientShellProjection,
   ClientShellSurface,
   ClientShellSurfacePatch,
@@ -75,14 +79,17 @@ import {
   encodeEndpointMouse,
   encodeEndpointResize,
   encodeEndpointPreference,
+  encodeEndpointHostTheme,
 } from "./herdr-endpoint-codecs.ts";
 import {
   applyClientShellSurfacePatch,
   retainClientShellGraphics,
 } from "./herdr-client-shell-state.ts";
 import {
+  ClientShellHostThemeInput,
   ClientShellKeyInput,
   ClientShellMouseInput,
+  type ClientShellHostThemeInputEncoded,
   type ClientShellKeyInputEncoded,
   type ClientShellMouseInputEncoded,
 } from "./herdr-client-shell-input.ts";
@@ -118,10 +125,28 @@ export type ClientShellOperationError =
 
 const parseConnect = Schema.decodeEffect(ClientShellConnectInput, { onExcessProperty: "error" });
 const parseProjection = Schema.decodeEffect(Schema.fromJsonString(ClientShellProjection));
+const parseAgentCompletions = Schema.decodeOption(
+  Schema.fromJsonString(ClientShellAgentCompletions),
+);
+const parseAgentViewProjection = Schema.decodeOption(
+  Schema.fromJsonString(ClientShellAgentViewProjection),
+);
+const parseAgentViewDefinition = Schema.decodeUnknownOption(AgentViewSetInput);
+/** Classifies a companion's opaque view; an undecodable view never fails the connection. */
+function classifyClientShellAgentView(
+  projection: ClientShellAgentViewProjection,
+): ClientShellAgentView {
+  if (Option.isNone(projection.view)) return { status: "none" };
+  const view = parseAgentViewDefinition(projection.view.value);
+  return Option.isSome(view) ? { status: "active", view: view.value } : { status: "unrecognized" };
+}
 const parseSurface = Schema.decodeEffect(ClientShellSurface);
 const parsePresentationEvent = Schema.decodeEffect(ClientShellPresentationEvent);
 const parseKey = Schema.decodeEffect(ClientShellKeyInput, { onExcessProperty: "error" });
 const parseMouse = Schema.decodeEffect(ClientShellMouseInput, { onExcessProperty: "error" });
+const parseHostTheme = Schema.decodeEffect(ClientShellHostThemeInput, {
+  onExcessProperty: "error",
+});
 const parsePatch = Schema.decodeEffect(ClientShellSurfacePatch);
 const parseAcknowledgement = Schema.decodeEffect(ClientShellSurfaceAcknowledgement);
 const parsePaneCommand = Schema.decodeEffect(CommandPaneInput, { onExcessProperty: "error" });
@@ -255,6 +280,14 @@ export interface ClientShellConnection {
   readonly setMouseCapture: (
     enabled: boolean,
   ) => Effect.Effect<void, HerdrInvalidInput | HerdrEndpointFailure>;
+  /**
+   * Forwards one outer (host) terminal default color, palette batch (1–256 entries), or
+   * light/dark appearance so pane applications choose matching colors. Fire-and-forget: Herdr
+   * sends no acknowledgement, and an oversized palette is rejected rather than split.
+   */
+  readonly setHostTheme: (
+    input: ClientShellHostThemeInputEncoded,
+  ) => Effect.Effect<void, HerdrInvalidInput | HerdrEndpointFailure>;
   /** Reads connection liveness without probing a second socket. */
   readonly connectionState: () => Effect.Effect<"ready" | "closed">;
   /** Waits until the connection fails or its owner closes it, preserving the termination reason. */
@@ -333,6 +366,15 @@ export const makeClientShellService = Effect.gen(function* () {
       let surfaceState: ClientShellSurfaceState = { status: "inactive" };
       let commands = new WeakSet<ClientShellCommand>();
       let healthPong: Deferred.Deferred<void> | undefined;
+      // Herdr sends a completion companion before the snapshot with the same boot and revision.
+      let pendingCompletions: ClientShellAgentCompletions | undefined;
+      // Herdr resends the agent-view companion before every snapshot while a view is active,
+      // and once with a null view when it is cleared; a snapshot without a match has no view.
+      // Only a companion newer than the current snapshot waits here.
+      let pendingAgentView: ClientShellAgentViewProjection | undefined;
+      // The companions attached to currentProjection, if any; the first matching view wins.
+      let attachedAgentView: ClientShellAgentViewProjection | undefined;
+      let attachedCompletions: ClientShellAgentCompletions | undefined;
       const publishSurface = (state: ClientShellSurfaceState) =>
         Effect.gen(function* () {
           surfaceState = state;
@@ -373,16 +415,94 @@ export const makeClientShellService = Effect.gen(function* () {
               if (healthPong !== undefined) yield* Deferred.succeed(healthPong, undefined);
               return;
             }
-            if (message.name === "shell.snapshot.v1") {
-              const projection = yield* parseProjection(message.data).pipe(
-                Effect.mapError(() => new HerdrEndpointInvalidMessage("schema")),
-              );
-              yield* wire.bindBoot(projection.bootId);
+            if (message.name === "endpoint.agent-completions.v1") {
+              // Optional companion: malformed data is ignored like any unknown optional control.
+              const parsedCompletions = parseAgentCompletions(message.data);
+              if (Option.isNone(parsedCompletions)) return;
+              const completions = parsedCompletions.value;
+              // Mirrors v0.9.5 client/shell/endpoint_agent_state.rs: a pending slot never moves backwards.
               if (
-                currentProjection !== undefined &&
-                projection.revision <= currentProjection.revision
+                pendingCompletions?.bootId === completions.bootId &&
+                pendingCompletions.revision >= completions.revision
               )
                 return;
+              pendingCompletions = completions;
+              return;
+            }
+            if (message.name === "endpoint.agent-view.v1") {
+              // Like upstream, a malformed envelope is ignored; only the inner view can be unrecognized.
+              const parsedAgentView = parseAgentViewProjection(message.data);
+              if (Option.isNone(parsedAgentView)) return;
+              const companion = parsedAgentView.value;
+              const current = currentProjection;
+              // Mirrors v0.9.5 client/shell/endpoints.rs: attach a companion matching the current
+              // snapshot directly and never move a slot backwards. An older companion needs no
+              // guard: it can only wait in pending, where no newer snapshot can match it.
+              if (current?.bootId === companion.bootId && current.revision === companion.revision) {
+                if (attachedAgentView !== undefined) return;
+                attachedAgentView = companion;
+                currentProjection = {
+                  ...current,
+                  agentView: classifyClientShellAgentView(companion),
+                };
+                yield* PubSub.publish(projectionChanges, currentProjection);
+                return;
+              }
+              if (
+                pendingAgentView?.bootId === companion.bootId &&
+                pendingAgentView.revision >= companion.revision
+              )
+                return;
+              pendingAgentView = companion;
+              return;
+            }
+            if (message.name === "shell.snapshot.v1") {
+              const decoded = yield* parseProjection(message.data).pipe(
+                Effect.mapError(() => new HerdrEndpointInvalidMessage("schema")),
+              );
+              yield* wire.bindBoot(decoded.bootId);
+              // Like upstream, an older snapshot is dropped before it can consume companions for a
+              // newer one, while an equal-revision snapshot replaces the current projection.
+              if (currentProjection !== undefined && decoded.revision < currentProjection.revision)
+                return;
+              const replacesCurrentRevision = currentProjection?.revision === decoded.revision;
+              const matchesSnapshot = (
+                companion: ClientShellAgentCompletions | ClientShellAgentViewProjection | undefined,
+              ) => companion?.bootId === decoded.bootId && companion.revision === decoded.revision;
+              // A matching pending companion wins; otherwise an equal-revision replacement keeps the
+              // companions already attached to that revision, and a newer snapshot starts without.
+              const completionsCompanion = pendingCompletions;
+              pendingCompletions = undefined;
+              attachedCompletions = matchesSnapshot(completionsCompanion)
+                ? completionsCompanion
+                : replacesCurrentRevision
+                  ? attachedCompletions
+                  : undefined;
+              const completions = attachedCompletions;
+              const agentViewCompanion = pendingAgentView;
+              pendingAgentView = undefined;
+              attachedAgentView = matchesSnapshot(agentViewCompanion)
+                ? agentViewCompanion
+                : replacesCurrentRevision
+                  ? attachedAgentView
+                  : undefined;
+              const agentView: ClientShellAgentView =
+                attachedAgentView === undefined
+                  ? { status: "none" }
+                  : classifyClientShellAgentView(attachedAgentView);
+              const projection =
+                completions !== undefined
+                  ? {
+                      ...decoded,
+                      agentView,
+                      agents: decoded.agents.map((agent) => ({
+                        ...agent,
+                        completionSeq: Object.hasOwn(completions.completions, agent.paneId)
+                          ? Option.fromNullishOr(completions.completions[agent.paneId])
+                          : Option.none(),
+                      })),
+                    }
+                  : { ...decoded, agentView };
               currentProjection = projection;
               if (
                 surfaceState.status === "active" &&
@@ -715,6 +835,15 @@ export const makeClientShellService = Effect.gen(function* () {
         },
         setFocused: (focused) => preference("focus", focused),
         setMouseCapture: (enabled) => preference("mouseCapture", enabled),
+        setHostTheme: (input) =>
+          Effect.gen(function* () {
+            const update = yield* decodeHerdrInput(
+              "ClientShellConnection.setHostTheme",
+              parseHostTheme,
+              input,
+            );
+            yield* wire.write(() => encodeEndpointHostTheme(update));
+          }),
         awaitClosed: () => wire.failure,
         connectionState: () =>
           wire.ensureOpen.pipe(

@@ -40,7 +40,7 @@ import {
 } from "./herdr-endpoint-codecs.ts";
 import { encodeWireRequest, type HerdrWireParameters } from "./herdr-wire-encoder.ts";
 import { isExpectedWireResult, parseHerdrWireResponse } from "./herdr-wire-parser.ts";
-import { resolveHerdrSocketEndpoint } from "./herdr-transport.ts";
+import { type HerdrStreamWireMethod, resolveHerdrSocketEndpoint } from "./herdr-transport.ts";
 
 const EndpointWelcome = Schema.Struct({
   generation: Schema.Natural,
@@ -77,11 +77,8 @@ export type EndpointRequestError =
   | HerdrEndpointUnsupportedMethod
   | HerdrServerError
   | HerdrUnsupportedResult;
-/** Connection-local request methods; socket subscriptions and graphics streams use their own transport. @category models @since 0.9.0 */
-export type EndpointRequestMethod = Exclude<
-  WireMethod,
-  "events.subscribe" | "pane.graphics.stream"
->;
+/** Connection-local request methods; connection-scoped API-socket streams use their own transport. @category models @since 0.9.0 */
+export type EndpointRequestMethod = Exclude<WireMethod, HerdrStreamWireMethod>;
 /** Internal protocol connection; only ClientShellService exposes domain operations. @category services @since 0.9.0 */
 export interface EndpointWireConnection {
   /** Negotiated endpoint version and advertised capability names. */

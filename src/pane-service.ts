@@ -1,25 +1,11 @@
 /**
- * Controls Herdr panes, terminal input and output, geometry, metadata, and graphics.
+ * Controls Herdr panes, terminal input and output, geometry, and metadata.
  *
- * The nested graphics capability supports validated one-shot frames and scope-owned streaming writers whose sockets close on success, failure, or interruption.
+ * Images are not a socket API: applications draw them by writing standard Kitty graphics to their own pane's terminal output.
  *
  * @since 0.8.2
  */
-import { Buffer } from "node:buffer";
-import {
-  Clock,
-  Context,
-  Effect,
-  Exit,
-  Layer,
-  Option,
-  Queue,
-  Ref,
-  Schema,
-  Scope,
-  Semaphore,
-  Stream,
-} from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import {
   HerdrKeySequence,
   type HerdrKeySequence as HerdrKeySequenceValue,
@@ -38,19 +24,6 @@ import {
   PaneFocusDirectionResult,
   PaneFocusDirectionInput,
   type PaneFocusDirectionInputEncoded,
-  PaneGraphicsFrame,
-  type PaneGraphicsFrameEncoded,
-  PaneGraphicsFileFrame,
-  type PaneGraphicsFileFrameEncoded,
-  PaneGraphicsFrameAcknowledgement,
-  type PaneGraphicsFrameAcknowledgement as PaneGraphicsFrameAcknowledgementValue,
-  PaneGraphicsInfo,
-  PaneGraphicsLayerInput,
-  type PaneGraphicsLayerInputEncoded,
-  PaneGraphicsSetFrame,
-  type PaneGraphicsSetFrameEncoded,
-  PaneGraphicsStreamInput,
-  type PaneGraphicsStreamInputEncoded,
   PaneInput,
   type PaneInputEncoded,
   PaneInputRoutingInput,
@@ -90,23 +63,10 @@ import {
 import { decodeHerdrInput, decodeHerdrWire } from "./herdr-schema-boundary.ts";
 import { makePaneInteraction, type IPaneInteraction } from "./pane-interaction.ts";
 import { defineHerdrOperation } from "./herdr-effect-operation.ts";
-import {
-  encodePaneGraphicsPlacement,
-  encodePaneGraphicsStreamPlacement,
-  encodePaneReadParameters,
-} from "./herdr-wire-encoder.ts";
-import {
-  HerdrGraphicsStreamClosed,
-  HerdrImageTooLarge,
-  HerdrInvalidFrame,
-  HerdrInvalidResponse,
-  HerdrServerError,
-  type HerdrTransportError,
-} from "./herdr-errors.ts";
+import { encodePaneReadParameters } from "./herdr-wire-encoder.ts";
 import {
   HerdrTransport,
   herdrTransportLayer,
-  type IHerdrTransport,
   type HerdrTransportRequestError,
   type HerdrTransportRequestOptionsEncoded,
 } from "./herdr-transport.ts";
@@ -120,12 +80,6 @@ const parsePaneCurrentInput = Schema.decodeEffect(PaneCurrentInput);
 const parsePaneEdgesResult = Schema.decodeUnknownEffect(PaneEdgesResult);
 const parsePaneFocusDirectionInput = Schema.decodeEffect(PaneFocusDirectionInput);
 const parsePaneFocusDirectionResult = Schema.decodeUnknownEffect(PaneFocusDirectionResult);
-const parsePaneGraphicsFrame = Schema.decodeEffect(PaneGraphicsFrame);
-const parsePaneGraphicsFileFrame = Schema.decodeEffect(PaneGraphicsFileFrame);
-const parsePaneGraphicsInfo = Schema.decodeUnknownEffect(PaneGraphicsInfo);
-const parsePaneGraphicsLayerInput = Schema.decodeEffect(PaneGraphicsLayerInput);
-const parsePaneGraphicsSetFrame = Schema.decodeEffect(PaneGraphicsSetFrame);
-const parsePaneGraphicsStreamInput = Schema.decodeEffect(PaneGraphicsStreamInput);
 const parsePaneInput = Schema.decodeEffect(PaneInput);
 const parsePaneInputRoutingInput = Schema.decodeEffect(PaneInputRoutingInput);
 const parsePaneKeySequence = Schema.decodeEffect(HerdrKeySequence);
@@ -150,128 +104,13 @@ const parsePaneText = Schema.decodeEffect(Schema.String);
 const parsePaneWaitForOutputInput = Schema.decodeEffect(PaneWaitForOutputInput);
 const parsePaneZoomInput = Schema.decodeEffect(PaneZoomInput);
 const parsePaneZoomResult = Schema.decodeUnknownEffect(PaneZoomResult);
-const MAX_GRAPHICS_ONE_SHOT_BYTES = 512 * 1024;
-const MAX_GRAPHICS_STREAM_FRAME_BYTES = 16 * 1024 * 1024;
-
-const PaneGraphicsStreamResponseEnvelope = Schema.Union([
-  Schema.Struct({
-    id: Schema.String,
-    result: Schema.Struct({
-      type: Schema.Literal("pane_graphics_frame_ack"),
-      ...PaneGraphicsFrameAcknowledgement.fields,
-    }),
-  }),
-  Schema.Struct({
-    id: Schema.String,
-    error: Schema.Struct({ code: Schema.String, message: Schema.String }),
-  }),
-]);
-
-const parsePaneGraphicsStreamResponseEnvelope = Schema.decodeUnknownEffect(
-  PaneGraphicsStreamResponseEnvelope,
-);
-
-type PaneGraphicsStreamFailure = HerdrGraphicsStreamClosed | HerdrTransportRequestError;
-
-type PaneGraphicsStreamMessage =
-  | {
-      readonly _tag: "Acknowledgement";
-      readonly id: string;
-      readonly value: PaneGraphicsFrameAcknowledgementValue;
-    }
-  | { readonly _tag: "Failure"; readonly error: PaneGraphicsStreamFailure };
-
 /**
- * Scoped graphics writer whose socket is owned by the acquisition scope.
- *
- * @category services
- * @since 0.8.2
- */
-export interface PaneGraphicsWriter {
-  /** Pane receiving every frame written by this resource. */
-  readonly paneId: PaneId;
-  /** Writes one framed image to the acquired graphics socket. */
-  readonly write: (
-    frame: PaneGraphicsFrameEncoded,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<
-    void,
-    HerdrInvalidFrame | HerdrImageTooLarge | HerdrGraphicsStreamClosed | HerdrTransportRequestError
-  >;
-  /** Submits an immutable direct-file frame; the write deadline includes Herdr's acknowledgement. */
-  readonly writeFile: (
-    frame: PaneGraphicsFileFrameEncoded,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<
-    PaneGraphicsFrameAcknowledgementValue,
-    HerdrInvalidFrame | HerdrGraphicsStreamClosed | HerdrTransportRequestError
-  >;
-}
-
-/**
- * Nested pane graphics capability.
- *
- * @category services
- * @since 0.8.2
- */
-export interface IPaneGraphics {
-  /** Reads terminal-cell pixel dimensions for a pane. */
-  readonly info: (
-    id: PaneId,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<PaneGraphicsInfo, HerdrTransportRequestError>;
-  /** Replaces a pane graphics layer with one image. */
-  readonly set: (
-    id: PaneId,
-    frame: PaneGraphicsSetFrameEncoded,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<void, HerdrInvalidFrame | HerdrImageTooLarge | HerdrTransportRequestError>;
-  /** Clears a pane graphics layer. */
-  readonly clear: (
-    id: PaneId,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<void, HerdrTransportRequestError>;
-  /** Clears one named pane graphics layer, or the primary layer when omitted. */
-  readonly clearLayer: (
-    id: PaneId,
-    input?: PaneGraphicsLayerInputEncoded,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<void, HerdrTransportRequestError>;
-  /** Owns a graphics writer for the callback; closes on success, failure, and interruption. */
-  readonly withStream: <A, E, R>(
-    id: PaneId,
-    use: (writer: PaneGraphicsWriter) => Effect.Effect<A, E, R>,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<A, E | HerdrTransportRequestError, R>;
-  /** Owns a named-layer writer for the callback; no explicit caller Scope is needed. */
-  readonly withLayerStream: <A, E, R>(
-    id: PaneId,
-    input: PaneGraphicsStreamInputEncoded,
-    use: (writer: PaneGraphicsWriter) => Effect.Effect<A, E, R>,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<A, E | HerdrTransportRequestError, R>;
-  /** Acquires a scoped multi-frame graphics writer for advanced resource composition. */
-  readonly openStream: (
-    id: PaneId,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<PaneGraphicsWriter, HerdrTransportRequestError, Scope.Scope>;
-  /** Acquires a scoped writer for a named layer and z-index. */
-  readonly openLayerStream: (
-    id: PaneId,
-    input?: PaneGraphicsStreamInputEncoded,
-    options?: HerdrTransportRequestOptionsEncoded,
-  ) => Effect.Effect<PaneGraphicsWriter, HerdrTransportRequestError, Scope.Scope>;
-}
-
-/**
- * Pane lifecycle, geometry, I/O, reporting, and graphics capability.
+ * Pane lifecycle, geometry, I/O, and reporting capability.
  *
  * @category services
  * @since 0.8.2
  */
 export interface IPaneService extends IPaneInteraction {
-  /** Nested pane graphics operations. */
-  readonly graphics: IPaneGraphics;
   /** Splits a pane or the focused pane. */
   readonly split: (
     targetPaneId: PaneId | undefined,
@@ -463,95 +302,8 @@ export const makePaneService = Effect.gen(function* () {
       }),
   );
 
-  const graphics: IPaneGraphics = {
-    withStream: (id, use, options = {}) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const writer = yield* graphics.openStream(id, options);
-          return yield* use(writer);
-        }),
-      ),
-    withLayerStream: (id, input, use, options = {}) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const writer = yield* graphics.openLayerStream(id, input, options);
-          return yield* use(writer);
-        }),
-      ),
-    info: defineHerdrOperation("PaneService.graphics.info", (id, options = {}) =>
-      Effect.gen(function* () {
-        const response = yield* transport.request("pane.graphics.info", { paneId: id }, options);
-        return yield* decodeHerdrWire(parsePaneGraphicsInfo, response.result, response.requestId);
-      }),
-    ),
-    set: defineHerdrOperation("PaneService.graphics.set", (id, frame, options = {}) =>
-      Effect.gen(function* () {
-        const parsed = yield* decodeGraphicsSetFrame(
-          frame,
-          "graphics_set",
-          MAX_GRAPHICS_ONE_SHOT_BYTES,
-        );
-        const placement = yield* Option.match(parsed.placement, {
-          onNone: () => Effect.succeed(undefined),
-          onSome: (value) => encodePaneGraphicsPlacement(value).pipe(Effect.orDie),
-        });
-        const parametersWithoutPlacement = {
-          paneId: id,
-          format: parsed.format,
-          imageWidth: parsed.imageWidth,
-          imageHeight: parsed.imageHeight,
-          dataBase64: Buffer.from(parsed.data).toString("base64"),
-          layerId: Option.getOrNull(parsed.layerId),
-        };
-        const withPlacement =
-          placement === undefined
-            ? parametersWithoutPlacement
-            : { ...parametersWithoutPlacement, placement };
-        const parameters = Option.match(parsed.zIndex, {
-          onNone: () => withPlacement,
-          onSome: (zIndex) => ({ ...withPlacement, zIndex }),
-        });
-        yield* transport.request("pane.graphics.set", parameters, options);
-      }),
-    ),
-    clear: defineHerdrOperation("PaneService.graphics.clear", (id, options = {}) =>
-      transport.request("pane.graphics.clear", { paneId: id }, options).pipe(Effect.asVoid),
-    ),
-    clearLayer: defineHerdrOperation(
-      "PaneService.graphics.clearLayer",
-      (id, input = {}, options = {}) =>
-        Effect.gen(function* () {
-          const parsed = yield* decodeHerdrInput(
-            "PaneService.graphics.clearLayer",
-            parsePaneGraphicsLayerInput,
-            input,
-          );
-          yield* transport.request(
-            "pane.graphics.clear",
-            { paneId: id, layerId: Option.getOrNull(parsed.layerId) },
-            options,
-          );
-        }),
-    ),
-    openStream: defineHerdrOperation("PaneService.graphics.openStream", (id, options = {}) =>
-      decodeHerdrInput("PaneService.graphics.openStream", parsePaneGraphicsStreamInput, {}).pipe(
-        Effect.flatMap((input) => makePaneGraphicsWriter(transport, id, input, options)),
-      ),
-    ),
-    openLayerStream: defineHerdrOperation(
-      "PaneService.graphics.openLayerStream",
-      (id, input = {}, options = {}) =>
-        decodeHerdrInput(
-          "PaneService.graphics.openLayerStream",
-          parsePaneGraphicsStreamInput,
-          input,
-        ).pipe(Effect.flatMap((parsed) => makePaneGraphicsWriter(transport, id, parsed, options))),
-    ),
-  };
-
   return PaneService.of({
     ...makePaneInteraction(transport),
-    graphics,
     split: defineHerdrOperation("PaneService.split", (targetPaneId, input, options = {}) =>
       Effect.gen(function* () {
         const parsed = yield* decodeHerdrInput("PaneService.split", parsePaneSplitInput, input);
@@ -880,6 +632,7 @@ export const makePaneService = Effect.gen(function* () {
             seq: Option.getOrNull(parsed.sequence),
             agentSessionId: Option.getOrNull(parsed.sessionId),
             agentSessionPath: Option.getOrNull(parsed.sessionPath),
+            resumeArgv: Option.getOrNull(parsed.resumeArgv),
           },
           options,
         );
@@ -904,6 +657,7 @@ export const makePaneService = Effect.gen(function* () {
               sessionStartSource: Option.getOrNull(parsed.sessionStartSource),
               agentSessionId: Option.getOrNull(parsed.sessionId),
               agentSessionPath: Option.getOrNull(parsed.sessionPath),
+              resumeArgv: Option.getOrNull(parsed.resumeArgv),
             },
             options,
           );
@@ -994,234 +748,6 @@ export const makePaneService = Effect.gen(function* () {
   });
 });
 
-function makePaneGraphicsWriter(
-  transport: IHerdrTransport,
-  paneId: PaneId,
-  input: typeof PaneGraphicsStreamInput.Type,
-  options: HerdrTransportRequestOptionsEncoded,
-): Effect.Effect<PaneGraphicsWriter, HerdrTransportRequestError, Scope.Scope> {
-  return Effect.gen(function* () {
-    const baseParameters = {
-      paneId,
-      layerId: Option.getOrNull(input.layerId),
-    };
-    const parameters = Option.match(input.zIndex, {
-      onNone: () => baseParameters,
-      onSome: (zIndex) => ({ ...baseParameters, zIndex }),
-    });
-    const acquisitionSpan = yield* Effect.option(Effect.currentSpan);
-    const socketScope = yield* Scope.fork(yield* Scope.Scope);
-    const stream = yield* transport.openStream("pane.graphics.stream", parameters, options).pipe(
-      Scope.provide(socketScope),
-      Effect.onExit((exit) =>
-        Exit.isFailure(exit) ? Scope.close(socketScope, exit) : Effect.void,
-      ),
-    );
-    const responses = yield* Queue.unbounded<PaneGraphicsStreamMessage>();
-    const terminalFailure = yield* Ref.make<Option.Option<PaneGraphicsStreamFailure>>(
-      Option.none(),
-    );
-    const writerSemaphore = yield* Semaphore.make(1);
-
-    // Lock wait ends before frame work; permit release remains interruption-safe.
-    const withWriterPermit = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      Effect.uninterruptibleMask((restore) =>
-        Effect.gen(function* () {
-          const writeSpan = yield* Effect.option(Effect.currentSpan);
-          if (Option.isSome(writeSpan) && Option.isSome(acquisitionSpan)) {
-            // A link records resource provenance without making an ended acquisition active.
-            writeSpan.value.addLinks([{ span: acquisitionSpan.value, attributes: {} }]);
-          }
-          yield* restore(writerSemaphore.take(1)).pipe(Effect.withSpan("herdr.graphics.lock.wait"));
-          return yield* restore(effect).pipe(Effect.ensuring(writerSemaphore.release(1)));
-        }),
-      );
-
-    const finishReader = (error: PaneGraphicsStreamFailure): Effect.Effect<void> =>
-      Ref.set(terminalFailure, Option.some(error)).pipe(
-        Effect.andThen(Queue.offer(responses, { _tag: "Failure", error })),
-        Effect.asVoid,
-      );
-
-    yield* decodePaneGraphicsResponseStream(stream.readBytes, stream.requestId).pipe(
-      Stream.runForEach((message) => Queue.offer(responses, message)),
-      Effect.matchEffect({
-        onFailure: finishReader,
-        onSuccess: () => finishReader(new HerdrGraphicsStreamClosed(stream.requestId)),
-      }),
-      Effect.forkIn(socketScope),
-    );
-
-    yield* Scope.addFinalizer(
-      socketScope,
-      finishReader(new HerdrGraphicsStreamClosed(stream.requestId)),
-    );
-
-    const failIfClosed = Effect.gen(function* () {
-      const failure = yield* Ref.get(terminalFailure);
-      if (Option.isSome(failure)) return yield* failure.value;
-    });
-
-    const closeWriter = Effect.gen(function* () {
-      yield* Ref.set(terminalFailure, Option.some(new HerdrGraphicsStreamClosed(stream.requestId)));
-      yield* Scope.close(socketScope, Exit.void);
-    });
-
-    const closeOnWriteFailure = <A, E extends PaneGraphicsStreamFailure, R>(
-      effect: Effect.Effect<A, E, R>,
-    ) =>
-      effect.pipe(
-        Effect.onExit((exit) => {
-          if (Exit.isSuccess(exit)) return Effect.void;
-          // Invalid request options fail before writing bytes and leave the writer usable.
-          return exit.cause.reasons.every(
-            (reason) => reason._tag === "Fail" && reason.error._tag === "HerdrInvalidInput",
-          )
-            ? Effect.void
-            : Effect.gen(function* () {
-                const reason = exit.cause.reasons.some((reason) => reason._tag === "Interrupt")
-                  ? "interrupted"
-                  : exit.cause.reasons.some(
-                        (reason) =>
-                          reason._tag === "Fail" && reason.error._tag === "HerdrRequestTimeout",
-                      )
-                    ? "timeout"
-                    : "failure";
-                const span = yield* Effect.option(Effect.currentSpan);
-                if (Option.isSome(span)) {
-                  span.value.event("herdr.graphics.invalidated", yield* Clock.currentTimeNanos, {
-                    "herdr.reason": reason,
-                  });
-                }
-                yield* closeWriter;
-              });
-        }),
-      );
-
-    return {
-      paneId,
-      write: defineHerdrOperation("PaneService.graphics.write", (frame, writeOptions = {}) =>
-        withWriterPermit(
-          Effect.gen(function* () {
-            yield* failIfClosed;
-            const parsed = yield* decodeGraphicsFrame(
-              frame,
-              "graphics_stream",
-              MAX_GRAPHICS_STREAM_FRAME_BYTES,
-              stream.requestId,
-            );
-            const header = {
-              format: parsed.format,
-              image_width: parsed.imageWidth,
-              image_height: parsed.imageHeight,
-              data_length: parsed.data.byteLength,
-              placement: yield* Option.match(parsed.placement, {
-                onNone: () => Effect.succeed(undefined),
-                onSome: (value) => encodePaneGraphicsStreamPlacement(value).pipe(Effect.orDie),
-              }),
-            };
-            const bytes = Buffer.concat([
-              Buffer.from(JSON.stringify(header) + "\n"),
-              Buffer.from(parsed.data),
-            ]);
-            yield* transport
-              .writeStreamBytes(stream, bytes, writeOptions)
-              .pipe(closeOnWriteFailure);
-          }),
-        ),
-      ),
-      writeFile: defineHerdrOperation(
-        "PaneService.graphics.writeFile",
-        (frame, writeOptions = {}) =>
-          withWriterPermit(
-            Effect.gen(function* () {
-              yield* failIfClosed;
-              const parsed = yield* parsePaneGraphicsFileFrame(frame).pipe(
-                Effect.mapError(
-                  () =>
-                    new HerdrInvalidFrame("graphics_stream", "schema_mismatch", stream.requestId),
-                ),
-              );
-              const header = {
-                format: parsed.format,
-                image_width: parsed.imageWidth,
-                image_height: parsed.imageHeight,
-                file: { path: parsed.filePath },
-                sequence: parsed.sequence,
-                revision: parsed.revision,
-                placement: yield* Option.match(parsed.placement, {
-                  onNone: () => Effect.succeed(undefined),
-                  onSome: (value) => encodePaneGraphicsStreamPlacement(value).pipe(Effect.orDie),
-                }),
-              };
-              // Once submitted, interruption or an invalid acknowledgement makes the frame
-              // outcome uncertain. Close before releasing the permit to prevent stale replies.
-              const acknowledgement = Effect.gen(function* () {
-                const response = yield* Queue.take(responses);
-                if (response._tag === "Failure") return yield* response.error;
-                const expectedId = `${stream.requestId}:file:${parsed.sequence}`;
-                if (response.id !== expectedId || response.value.sequence !== parsed.sequence) {
-                  return yield* new HerdrInvalidResponse(
-                    "correlation_mismatch",
-                    stream.requestId,
-                    new Error(`Herdr returned graphics acknowledgement ID ${response.id}`),
-                  );
-                }
-                return response.value;
-              }).pipe(Effect.withSpan("herdr.graphics.ack.wait"));
-              return yield* transport
-                .writeStreamBytes(
-                  stream,
-                  Buffer.from(JSON.stringify(header) + "\n"),
-                  writeOptions,
-                  acknowledgement,
-                )
-                .pipe(closeOnWriteFailure);
-            }),
-          ),
-      ),
-    };
-  });
-}
-
-function decodePaneGraphicsResponseStream(
-  bytes: Stream.Stream<Uint8Array, HerdrTransportError>,
-  requestId: string,
-): Stream.Stream<PaneGraphicsStreamMessage, PaneGraphicsStreamFailure> {
-  return bytes.pipe(
-    Stream.decodeText,
-    Stream.splitLines,
-    Stream.filter((line) => line.length > 0),
-    Stream.mapEffect((line) => decodePaneGraphicsResponseLine(line, requestId)),
-  );
-}
-
-function decodePaneGraphicsResponseLine(
-  line: string,
-  requestId: string,
-): Effect.Effect<PaneGraphicsStreamMessage, HerdrInvalidResponse | HerdrServerError> {
-  return Effect.gen(function* () {
-    const json = yield* Effect.try({
-      try: () => JSON.parse(line),
-      catch: (cause) => new HerdrInvalidResponse("malformed_json", requestId, cause),
-    });
-    const response = yield* parsePaneGraphicsStreamResponseEnvelope(json).pipe(
-      Effect.mapError((cause) => new HerdrInvalidResponse("schema_mismatch", requestId, cause)),
-    );
-    if ("error" in response) {
-      return yield* new HerdrServerError(response.error.code, response.error.message, response.id);
-    }
-    return {
-      _tag: "Acknowledgement",
-      id: response.id,
-      value: {
-        sequence: response.result.sequence,
-        revision: response.result.revision,
-      },
-    };
-  });
-}
-
 /**
  * Provides pane operations while retaining the shared transport requirement.
  *
@@ -1264,48 +790,4 @@ function encodePaneMoveDestination(destination: PaneMoveInput["destination"]) {
         tabLabel: Option.getOrNull(destination.tabLabel),
       };
   }
-}
-
-function decodeGraphicsFrame(
-  frame: PaneGraphicsFrameEncoded,
-  operation: "graphics_set" | "graphics_stream",
-  maximumBytes: number,
-  requestId?: string,
-) {
-  return Effect.gen(function* () {
-    const parsed = yield* parsePaneGraphicsFrame(frame).pipe(
-      Effect.mapError(() => new HerdrInvalidFrame(operation, "schema_mismatch", requestId)),
-    );
-    if (parsed.data.byteLength === 0) {
-      return yield* new HerdrInvalidFrame(operation, "empty_data", requestId);
-    }
-    if (parsed.data.byteLength > maximumBytes) {
-      return yield* new HerdrImageTooLarge(
-        operation,
-        parsed.data.byteLength,
-        maximumBytes,
-        requestId,
-      );
-    }
-    return parsed;
-  });
-}
-
-function decodeGraphicsSetFrame(
-  frame: PaneGraphicsSetFrameEncoded,
-  operation: "graphics_set",
-  maximumBytes: number,
-) {
-  return Effect.gen(function* () {
-    const parsed = yield* parsePaneGraphicsSetFrame(frame).pipe(
-      Effect.mapError(() => new HerdrInvalidFrame(operation, "schema_mismatch")),
-    );
-    if (parsed.data.byteLength === 0) {
-      return yield* new HerdrInvalidFrame(operation, "empty_data");
-    }
-    if (parsed.data.byteLength > maximumBytes) {
-      return yield* new HerdrImageTooLarge(operation, parsed.data.byteLength, maximumBytes);
-    }
-    return parsed;
-  });
 }

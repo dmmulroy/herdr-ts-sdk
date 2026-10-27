@@ -560,7 +560,7 @@ describe("executable examples", () => {
   );
 
   it.for(["SIGINT", "SIGTERM"] as const)(
-    "clears the graphics layer before exiting on %s",
+    "releases the SSH agent registration before exiting on %s",
     { timeout: 10_000 },
     (signal, context) =>
       runToolingTest(
@@ -569,37 +569,34 @@ describe("executable examples", () => {
           Effect.gen(function* () {
             const fixture = yield* SdkToolingFixture;
             const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-            const frameSent = yield* Deferred.make<void>();
+            const registered = yield* Deferred.make<void>();
             const server = yield* startHerdrTestServer((request) =>
               Effect.gen(function* () {
                 const response = makeHerdrSuccessResponse(request);
-                if (response.result.type === "pane_graphics_info") {
+                if (response.result.type === "pong") {
                   return {
                     ...response,
                     result: {
                       ...response.result,
-                      pane_visible: true,
-                      cell_width_px: 8,
-                      cell_height_px: 16,
+                      capabilities: { live_handoff: false, ssh_agent_registration: true },
                     },
                   };
                 }
-                if (request.method === "pane.graphics.set")
-                  yield* Deferred.succeed(frameSent, undefined);
+                if (request.method === "server.ssh_agent.register")
+                  yield* Deferred.succeed(registered, undefined);
                 return response;
               }),
             );
             const child = yield* spawner.spawn(
-              ChildProcess.make(
-                process.execPath,
-                ["compiled/examples/graphics-status-overlay.js"],
-                {
-                  cwd: fixture.packageDirectory,
-                  env: { HERDR_SOCKET_PATH: server.socketPath },
-                  extendEnv: true,
-                  forceKillAfter: "1 second",
+              ChildProcess.make(process.execPath, ["compiled/examples/ssh-agent-forwarding.js"], {
+                cwd: fixture.packageDirectory,
+                env: {
+                  HERDR_SOCKET_PATH: server.socketPath,
+                  SSH_AUTH_SOCK: "/tmp/herdr-sdk-fixture-agent.sock",
                 },
-              ),
+                extendEnv: true,
+                forceKillAfter: "1 second",
+              }),
             );
             const stderr = yield* Stream.mkString(Stream.decodeText(child.stderr)).pipe(
               Effect.forkScoped,
@@ -607,26 +604,27 @@ describe("executable examples", () => {
             yield* Stream.runDrain(child.stdout).pipe(Effect.forkScoped);
             const exited = yield* child.exitCode.pipe(Effect.forkScoped);
             yield* Effect.raceFirst(
-              Deferred.await(frameSent),
+              Deferred.await(registered),
               Effect.gen(function* () {
                 const status = yield* Fiber.join(exited);
                 const output = yield* Fiber.join(stderr);
                 return yield* Effect.die(
-                  new Error(
-                    `Graphics example exited before sending its frame: ${status} ${output}`,
-                  ),
+                  new Error(`SSH agent example exited before registering: ${status} ${output}`),
                 );
               }),
             );
+            expect(server.openSocketMethods()).toContain("server.ssh_agent.register");
             yield* child.kill({ killSignal: signal, forceKillAfter: "1 second" });
             const status = yield* Fiber.join(exited);
             const output = yield* Fiber.join(stderr);
             expect(status, output).toBe(130);
+            yield* server.waitFor("close", server.requests.length);
+            expect(server.openSocketMethods()).toEqual([]);
             expect(
               server.requests
-                .filter((request) => request.method === "pane.graphics.clear")
+                .filter((request) => request.method === "server.ssh_agent.register")
                 .map((request) => request.params),
-            ).toEqual([{ pane_id: "fixture", layer_id: "build-status" }]);
+            ).toEqual([{ socket_path: "/tmp/herdr-sdk-fixture-agent.sock" }]);
           }),
         ).pipe(Effect.timeout("8 seconds")),
       ),

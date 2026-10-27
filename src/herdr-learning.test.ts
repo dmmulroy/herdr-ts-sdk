@@ -2,11 +2,12 @@ import { Deferred, Effect, Stream } from "effect";
 import { expect, test } from "vite-plus/test";
 import {
   HerdrAbsolutePath,
-  HerdrGraphicsStreamClosed,
   HerdrInvalidResponse,
   HerdrSdk,
+  HerdrSshAgentRegistrationClosed,
   herdrSdkLayerFromOptions,
 } from "./index.ts";
+import type { Socket } from "node:net";
 import { runHerdrTest } from "./herdr-test-runtime.ts";
 import { HerdrRawTestResponse, startHerdrTestServer } from "./herdr-test-server.ts";
 import { makeHerdrSuccessResponse } from "./herdr-wire-fixtures.ts";
@@ -135,79 +136,47 @@ test("sdk learning: scoped-subscription", (context) =>
     }),
   ));
 
-// Controls: two distinct tiny payloads; capture their bytes, then let the writer escape its scope.
-// Hypothesis: Concurrent graphics writes serialize complete frames; scope closure invalidates the writer.
-test("sdk learning: graphics-writer", (context) =>
+// Controls: the fixture keeps the registration socket open; close it once from the server side.
+// Hypothesis: The callback owns the lease socket; a server-side close interrupts the callback with a typed failure.
+test("sdk learning: ssh-agent-lease", (context) =>
   runHerdrTest(
     context,
     Effect.gen(function* () {
-      const received = yield* Deferred.make<void>();
+      // Only the second lease is closed by the server; the first is released by its owner.
+      const secondRegistration = yield* Deferred.make<Socket>();
       const run = Effect.runForkWith(yield* Effect.context<never>());
-      const chunks: Buffer[] = [];
+      let registrations = 0;
       const server = yield* startHerdrTestServer((request, socket) =>
         Effect.sync(() => {
-          if (request.method === "pane.graphics.stream") {
-            socket.on("data", (chunk: Buffer) => {
-              chunks.push(chunk);
-              // Payloads have no newline: two header newlines and both payloads complete the observation.
-              const bytes = Buffer.concat(chunks);
-              const secondHeader = bytes.indexOf(10, bytes.indexOf(10) + 1);
-              if (secondHeader >= 0 && bytes.length >= secondHeader + 4) {
-                run(Deferred.succeed(received, undefined));
-              }
-            });
-          }
+          if (request.method === "server.ssh_agent.register" && ++registrations === 2)
+            run(Deferred.succeed(secondRegistration, socket));
           return makeHerdrSuccessResponse(request);
         }),
       );
-      const frame = (byte: number) => ({
-        format: "png" as const,
-        imageWidth: 1,
-        imageHeight: 1,
-        data: Uint8Array.of(byte, byte, byte),
-      });
       yield* runLearningSdk(
         server.socketPath,
         Effect.gen(function* () {
           const sdk = yield* HerdrSdk;
-          const writer = yield* Effect.scoped(
-            Effect.gen(function* () {
-              const acquired = yield* sdk.panes.graphics.openStream(sdk.ids.pane("pane-learning"));
-              yield* Effect.all([acquired.write(frame(1)), acquired.write(frame(2))], {
-                concurrency: "unbounded",
-              });
-              yield* Deferred.await(received);
-              return acquired;
-            }),
+          const input = { socketPath: "/tmp/herdr-learning-agent.sock" };
+          const state = yield* sdk.server.sshAgent.withRegistration(input, (registration) =>
+            registration.registrationState(),
           );
-          const closed = yield* writer.write(frame(3)).pipe(Effect.flip);
-          expect(closed).toBeInstanceOf(HerdrGraphicsStreamClosed);
+          expect(state).toBe("registered");
           yield* server.waitFor("close", 2);
+          expect(server.openSocketMethods()).not.toContain("server.ssh_agent.register");
+
+          const ended = yield* sdk.server.sshAgent
+            .withRegistration(input, () =>
+              Effect.gen(function* () {
+                (yield* Deferred.await(secondRegistration)).destroy();
+                return yield* Effect.never;
+              }),
+            )
+            .pipe(Effect.flip);
+          expect(ended).toBeInstanceOf(HerdrSshAgentRegistrationClosed);
         }),
       );
-      const bytes = Buffer.concat(chunks);
-      let offset = 0;
-      const payloads: number[][] = [];
-      for (let index = 0; index < 2; index++) {
-        const newline = bytes.indexOf(10, offset);
-        expect(newline).toBeGreaterThan(offset);
-        const header: unknown = JSON.parse(bytes.subarray(offset, newline).toString("utf8"));
-        expect(header).toMatchObject({
-          format: "png",
-          data_length: 3,
-          image_width: 1,
-          image_height: 1,
-        });
-        payloads.push([...bytes.subarray(newline + 1, newline + 4)]);
-        offset = newline + 4;
-      }
-      expect(payloads).toEqual(
-        expect.arrayContaining([
-          [1, 1, 1],
-          [2, 2, 2],
-        ]),
-      );
-      expect(offset).toBe(bytes.length);
+      expect(server.openSocketMethods()).toEqual([]);
     }),
   ));
 

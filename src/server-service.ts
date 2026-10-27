@@ -1,11 +1,13 @@
 /**
  * Controls Herdr server lifecycle and compatibility operations.
  *
- * The server service exposes ping, stop, live handoff, configuration reload, and agent-manifest cache inspection through the shared transport.
+ * The server service exposes ping, stop, live handoff, configuration reload, agent-manifest cache inspection, and connection-scoped SSH agent registration through the shared transport.
  *
  * @since 0.8.2
  */
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import { Context, Deferred, Effect, Exit, Layer, Option, Schema, Scope, Stream } from "effect";
+import type { HerdrAbsolutePath } from "./herdr-domain.ts";
+import { HerdrSshAgentRegistrationClosed, type HerdrTransportError } from "./herdr-errors.ts";
 import {
   AgentManifest,
   AgentManifestStatus,
@@ -13,6 +15,8 @@ import {
   PingResult,
   ServerLiveHandoffInput,
   type ServerLiveHandoffInputEncoded,
+  ServerSshAgentRegisterInput,
+  type ServerSshAgentRegisterInputEncoded,
 } from "./herdr-models.ts";
 import { decodeHerdrInput, decodeHerdrWire } from "./herdr-schema-boundary.ts";
 import { defineHerdrOperation } from "./herdr-effect-operation.ts";
@@ -28,6 +32,7 @@ const parseAgentManifestStatus = Schema.decodeUnknownEffect(AgentManifestStatus)
 const parseConfigReloadResult = Schema.decodeUnknownEffect(ConfigReloadResult);
 const parsePingResult = Schema.decodeUnknownEffect(PingResult);
 const parseServerLiveHandoffInput = Schema.decodeEffect(ServerLiveHandoffInput);
+const parseServerSshAgentRegisterInput = Schema.decodeEffect(ServerSshAgentRegisterInput);
 
 /**
  * Expected failure union for server lifecycle and compatibility operations.
@@ -36,6 +41,57 @@ const parseServerLiveHandoffInput = Schema.decodeEffect(ServerLiveHandoffInput);
  * @since 0.8.2
  */
 export type ServerOperationError = HerdrTransportRequestError;
+
+/**
+ * Failure ending an accepted SSH agent registration before its owner released it.
+ *
+ * @category errors
+ * @since 0.9.5
+ */
+export type ServerSshAgentRegistrationError = HerdrSshAgentRegistrationClosed | HerdrTransportError;
+
+/**
+ * Accepted SSH agent registration; Herdr keeps it only while this handle's connection is open.
+ *
+ * @category services
+ * @since 0.9.5
+ */
+export interface ServerSshAgentRegistration {
+  /** Wire request identifier of the accepted registration. */
+  readonly requestId: string;
+  /** Registered agent socket path on the server host. */
+  readonly socketPath: HerdrAbsolutePath;
+  /** Reads whether the registration connection is still open, without probing the server. */
+  readonly registrationState: () => Effect.Effect<"registered" | "closed">;
+  /** Waits until Herdr ends the registration, preserving why it ended; never succeeds. */
+  readonly awaitClosed: () => Effect.Effect<never, ServerSshAgentRegistrationError>;
+}
+
+/**
+ * Connection-scoped SSH agent registration behind Herdr's session-local agent address.
+ *
+ * Herdr rejects sockets that are not absolute and user-owned with `invalid_ssh_agent`, and reports
+ * `ssh_agent_unavailable` when this server cannot manage agent forwarding.
+ *
+ * @category services
+ * @since 0.9.5
+ */
+export interface IServerSshAgent {
+  /**
+   * Registers an agent socket for the callback; releases it on success, failure, and interruption.
+   * If Herdr ends the registration first, the callback is interrupted and the closure is returned.
+   */
+  readonly withRegistration: <A, E, R>(
+    input: ServerSshAgentRegisterInputEncoded,
+    use: (registration: ServerSshAgentRegistration) => Effect.Effect<A, E, R>,
+    options?: HerdrTransportRequestOptionsEncoded,
+  ) => Effect.Effect<A, E | ServerOperationError | ServerSshAgentRegistrationError, R>;
+  /** Advanced acquisition whose registration lasts until the caller's Scope closes. */
+  readonly registerScoped: (
+    input: ServerSshAgentRegisterInputEncoded,
+    options?: HerdrTransportRequestOptionsEncoded,
+  ) => Effect.Effect<ServerSshAgentRegistration, ServerOperationError, Scope.Scope>;
+}
 
 /**
  * Server lifecycle, compatibility, configuration, and manifest capability.
@@ -69,6 +125,8 @@ export interface IServerService {
   readonly reloadAgentManifests: (
     options?: HerdrTransportRequestOptionsEncoded,
   ) => Effect.Effect<readonly AgentManifest[], ServerOperationError>;
+  /** Connection-scoped SSH agent registration; check `ping` capabilities for `sshAgentRegistration`. */
+  readonly sshAgent: IServerSshAgent;
 }
 
 /**
@@ -90,7 +148,49 @@ export class ServerService extends Context.Service<ServerService, IServerService
 export const makeServerService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;
 
+  const registerScoped: IServerSshAgent["registerScoped"] = (input, options = {}) =>
+    Effect.gen(function* () {
+      const parsed = yield* decodeHerdrInput(
+        "ServerService.sshAgent.registerScoped",
+        parseServerSshAgentRegisterInput,
+        input,
+      );
+      const opened = yield* transport.openStream(
+        "server.ssh_agent.register",
+        { socketPath: parsed.socketPath },
+        options,
+      );
+      const closed = yield* Deferred.make<never, ServerSshAgentRegistrationError>();
+      // Herdr sends nothing after acceptance; the lease ends when either side closes the socket.
+      // Forked after socket acquisition so owner release interrupts this watcher before closing.
+      yield* opened.readBytes.pipe(
+        Stream.runDrain,
+        Effect.flatMap(() => Effect.fail(new HerdrSshAgentRegistrationClosed(opened.requestId))),
+        Effect.onExit((exit) =>
+          Exit.isFailure(exit) ? Deferred.failCause(closed, exit.cause) : Effect.void,
+        ),
+        Effect.forkScoped,
+      );
+      return {
+        requestId: opened.requestId,
+        socketPath: parsed.socketPath,
+        registrationState: () =>
+          Deferred.isDone(closed).pipe(Effect.map((done) => (done ? "closed" : "registered"))),
+        awaitClosed: () => Deferred.await(closed),
+      } satisfies ServerSshAgentRegistration;
+    }).pipe(Effect.withSpan("ServerService.sshAgent.registerScoped"));
+
   return ServerService.of({
+    sshAgent: {
+      registerScoped,
+      withRegistration: (input, use, options = {}) =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const registration = yield* registerScoped(input, options);
+            return yield* use(registration).pipe(Effect.raceFirst(registration.awaitClosed()));
+          }),
+        ),
+    },
     ping: defineHerdrOperation("ServerService.ping", (options = {}) =>
       Effect.gen(function* () {
         const response = yield* transport.request("ping", {}, options);

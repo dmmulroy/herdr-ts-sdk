@@ -270,6 +270,68 @@ test("event subscriptions preserve an unknown server discriminant as a typed fai
     ),
   ));
 
+test.for([
+  { code: "events_lost", id: "same", tag: "HerdrEventsLost" },
+  { code: "server_unavailable", id: "same", tag: "HerdrServerError" },
+  { code: "events_lost", id: "other", tag: "HerdrInvalidResponse" },
+] as const)(
+  "a post-acceptance $code error ends the subscription after earlier events: $tag",
+  ({ code, id, tag }, context) =>
+    runHerdrTest(
+      context,
+      Effect.scoped(
+        Effect.gen(function* () {
+          const server = yield* startHerdrTestServer((request) =>
+            Effect.sync(() => {
+              const response = makeHerdrSuccessResponse(request);
+              if (request.method !== "events.subscribe") return response;
+              return new HerdrRawTestResponse(
+                [
+                  JSON.stringify(response),
+                  JSON.stringify({
+                    event: "workspace_created",
+                    data: { type: "workspace_created", workspace },
+                  }),
+                  JSON.stringify({
+                    id: id === "same" ? request.id : "another-request",
+                    error: { code, message: "event subscription fell behind retained history" },
+                  }),
+                  "",
+                ].join("\n"),
+              );
+            }),
+          );
+
+          const observed: string[] = [];
+          const failure = yield* provideHerdrTestSdk(
+            server.socketPath,
+            Effect.gen(function* () {
+              const herdr = yield* HerdrSdk;
+              return yield* herdr.events
+                .subscribe([{ type: "workspace.created" }] as const, { requestId: "subscription" })
+                .pipe(
+                  Stream.runForEach((event) =>
+                    Effect.sync(() => observed.push(event.workspace.id)),
+                  ),
+                  Effect.flip,
+                );
+            }),
+          );
+          expect(observed).toEqual(["workspace-1"]);
+          expect(failure._tag).toBe(tag);
+          expect(failure).toMatchObject({ requestId: "subscription" });
+          if (failure._tag === "HerdrEventsLost") {
+            expect(failure.serverMessage).toBe("event subscription fell behind retained history");
+            expect(failure.message).toContain("session.snapshot");
+          }
+          if (failure._tag === "HerdrServerError") expect(failure.serverCode).toBe(code);
+          yield* server.waitFor("close", server.requests.length);
+          expect(server.openSocketMethods()).toEqual([]);
+        }),
+      ),
+    ),
+);
+
 test("event malformed-frame failure and interruption both finalize sockets", (context) =>
   runHerdrTest(
     context,

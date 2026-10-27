@@ -1,6 +1,6 @@
 # Herdr SDK architecture
 
-`@herdr/sdk` targets Herdr 0.9.0 / protocol 22, with Effect-native API-socket and client-shell endpoint clients. The
+`@herdr/sdk` targets Herdr 0.9.5 / protocol 22, with Effect-native API-socket and client-shell endpoint clients. The
 Effect implementation under `src/` is the only supported package architecture; there is no Promise
 client or cancellation compatibility facade.
 
@@ -13,7 +13,7 @@ visible for application composition.
 
 Each protocol-facing namespace owns an independent Effect service with its interface, contextual
 service class, constructor, dependency-preserving Layer, and ready production Layer. Nested
-capabilities such as pane graphics and plugin resources remain parent-owned values because they do
+capabilities such as pane interaction, SSH agent registration, and plugin resources remain parent-owned values because they do
 not have independent dependencies or lifecycles.
 
 ## Domain and protocol boundaries
@@ -36,10 +36,17 @@ correlation, bounded newline framing, response parsing, compatibility memoizatio
 stream handshakes, and interruption-safe cleanup. Lifecycle subscriptions are live-only from server
 acceptance; cache consumers bootstrap by buffering an accepted subscription across a session snapshot.
 
-Ordinary requests own one socket through `Effect.acquireUseRelease`. Event subscriptions and pane
-graphics streams use scoped acquisition. Event consumption and callback-owned graphics writers hide ordinary Scope management; explicit graphics acquisition remains available for advanced composition. Event reads are pull-based and
-backpressured. Graphics writes are serialized as complete frames, and a timed-out or interrupted
-write closes and invalidates its writer because the remote frame outcome is uncertain.
+Ordinary requests own one socket through `Effect.acquireUseRelease`. Event subscriptions and SSH
+agent registrations (`HerdrStreamWireMethod`) use scoped acquisition: their socket stays open after
+the accepted response. Event consumption and callback-owned registrations hide ordinary Scope
+management; explicit `registerScoped` acquisition remains available for advanced composition. Event
+reads are pull-based and backpressured. A subscription that falls behind receives one correlated
+`events_lost` error line and fails with `HerdrEventsLost`; the SDK never resumes it implicitly.
+An SSH agent registration lasts exactly as long as its connection; a scoped watcher records a
+server-side close, and the callback form interrupts its callback when that happens.
+
+Herdr removed the `pane.graphics.*` socket API in 0.9.2. The SDK has no image transport: pane
+applications emit standard Kitty graphics on their own terminal output.
 
 ### Client-shell endpoint ownership
 
@@ -60,16 +67,29 @@ and surfaces coalesce; required response chunks never drop. Slow presentation-ev
 at a bounded backlog rather than blocking health/correlation. The endpoint never opens server-supplied
 graphics file paths and does not negotiate direct graphics. Lost or ambiguous mutations are not retried.
 
+The 0.9.5 server always sends an `endpoint.agent-completions.v1` companion before each snapshot. The
+service attaches it to `ClientShellAgent.completionSeq` only when its boot ID and revision match that
+snapshot, and ignores malformed companions. The `endpoint.agent-view.v1` companion precedes every
+snapshot while a view is active (and once with a null view when cleared); like upstream, it binds to
+`ClientShellProjection.agentView` per snapshot by boot and revision, so a snapshot without a match has no view.
+A companion arriving after its matching snapshot attaches to it (first match wins); stale snapshots and
+older companions never discard a newer pending one. As upstream, an equal-revision snapshot replaces the
+projection and keeps companions already attached to that revision unless a matching pending one arrived. `agentView` is SDK-derived and absent from the wire payload.
+A malformed envelope is ignored; a view that fails `AgentViewSetInput` decoding becomes `unrecognized`
+without failing the connection. The SDK checks view structure only, not Herdr's server-side view limits.
+`setHostTheme` writes the `ClientShellHostTheme` message (tag 17), never a pane-input event.
+The SDK does not request the optional `surface_reuse`, `surface_delta`, or `surface_scroll` encodings.
+
 ### Public-input ergonomics
 
 Workspace creation separates default, explicit-directory, and source-workspace intent into named
 methods sharing private dispatch. Command invocation similarly separates current/workspace/tab/pane
 context; selection belongs only to the pane method. Both remove ambiguous cross-field combinations
-without requiring caller-authored `_tag` values. Graphics callbacks reuse existing scoped acquisition,
-not a second writer implementation.
+without requiring caller-authored `_tag` values. The SSH agent callback form reuses its scoped
+acquisition rather than a second lease implementation.
 
 The baseline audit retains composable domain unions for pane destinations/swaps, layout targets,
-agent targets, plugin placements, graphics formats, filters, and events: these are data values used in
+agent targets, plugin placements, filters, and events: these are data values used in
 scripted/declarative composition, not scope-owning operations. Existing exclusive-selector refinements
 remain authoritative. No deprecated workspace input alias or alternate legacy creation parser remains.
 

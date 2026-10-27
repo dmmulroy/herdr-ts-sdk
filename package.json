@@ -1,6 +1,6 @@
 {
   "name": "@herdr/sdk",
-  "version": "0.9.0",
+  "version": "0.9.5",
   "description": "Effect-native TypeScript SDK for Herdr's local socket API.",
   "homepage": "https://github.com/dmmulroy/herdr-ts-sdk#readme",
   "bugs": {
@@ -70,6 +70,6 @@
   },
   "herdr": {
     "protocol": 22,
-    "upstreamCommit": "b99002ac99b09e00b4ca692436cb15a6b0d676f1"
+    "upstreamCommit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01"
   }
 }

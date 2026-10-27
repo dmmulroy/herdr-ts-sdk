@@ -5,6 +5,7 @@
  *
  * @since 0.8.2
  */
+import { Buffer } from "node:buffer";
 import { isAbsolute } from "node:path";
 import { Schema } from "effect";
 
@@ -535,56 +536,58 @@ export type HerdrInsertIndex = typeof HerdrInsertIndex.Type;
  */
 export const parseHerdrInsertIndex = Schema.decodeUnknownEffect(HerdrInsertIndex);
 
+const HERDR_RESUME_ARGV_MAX_ARGUMENTS = 64;
+const HERDR_RESUME_ARGV_MAX_BYTES = 8192;
+const herdrResumeCommandName = /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/;
+// Matches Rust `char::is_control`: Unicode general category Cc.
+const herdrResumeControlCharacter = /\p{Cc}/u;
+
 /**
- * Positive integer image dimension measured in pixels.
+ * Command argv that resumes an agent session after a Herdr server restart.
+ *
+ * Herdr types this command into the restored pane's shell, so the first element must be a plain
+ * command name (ASCII letters, digits, `_`, `-`, or `.`, not starting with `-`), never a path. It
+ * holds one to 64 arguments totalling at most 8 KiB of UTF-8, with no apostrophes or control
+ * characters.
  *
  * @category schemas
- * @since 0.8.2
+ * @since 0.9.5
  */
-export const HerdrImageDimension = Schema.Finite.check(
-  Schema.isInt(),
-  Schema.isGreaterThan(0),
-).pipe(Schema.brand("HerdrImageDimension"));
+export const HerdrResumeArgv = Schema.Array(Schema.String).check(
+  Schema.makeFilter((argv) => {
+    const command = argv[0];
+    if (command === undefined) return "Herdr resume argv must not be empty";
+    if (argv.length > HERDR_RESUME_ARGV_MAX_ARGUMENTS)
+      return `Herdr resume argv allows at most ${HERDR_RESUME_ARGV_MAX_ARGUMENTS} arguments`;
+    let totalBytes = 0;
+    for (const argument of argv) totalBytes += Buffer.byteLength(argument, "utf8");
+    if (totalBytes > HERDR_RESUME_ARGV_MAX_BYTES)
+      return `Herdr resume argv allows at most ${HERDR_RESUME_ARGV_MAX_BYTES} UTF-8 bytes`;
+    if (argv.some((argument) => herdrResumeControlCharacter.test(argument)))
+      return "Herdr resume argv must not contain control characters";
+    if (argv.some((argument) => argument.includes("'")))
+      return "Herdr resume argv must not contain apostrophes";
+    if (!herdrResumeCommandName.test(command))
+      return "Herdr resume argv must start with a plain command name, not a path";
+    return true;
+  }),
+);
 
 /**
- * Positive integer image dimension measured in pixels.
+ * Validated command argv that resumes an agent session after a Herdr server restart.
  *
  * @category models
- * @since 0.8.2
+ * @since 0.9.5
  */
-export type HerdrImageDimension = typeof HerdrImageDimension.Type;
+export type HerdrResumeArgv = typeof HerdrResumeArgv.Type;
 
 /**
- * Parses an external image dimension before graphics I/O.
+ * Parses an external resume command before it is attached to an agent report.
  *
  * @category decoding
- * @since 0.8.2
+ * @since 0.9.5
  */
-export const parseHerdrImageDimension = Schema.decodeUnknownEffect(HerdrImageDimension);
-
-/**
- * Non-negative image payload size measured in bytes.
- *
- * @category schemas
- * @since 0.8.2
- */
-export const HerdrByteLength = HerdrNaturalNumber.pipe(Schema.brand("HerdrByteLength"));
-
-/**
- * Non-negative image payload size measured in bytes.
- *
- * @category models
- * @since 0.8.2
- */
-export type HerdrByteLength = typeof HerdrByteLength.Type;
-
-/**
- * Parses an external byte length before graphics I/O.
- *
- * @category decoding
- * @since 0.8.2
- */
-export const parseHerdrByteLength = Schema.decodeUnknownEffect(HerdrByteLength);
+export const parseHerdrResumeArgv = Schema.decodeUnknownEffect(HerdrResumeArgv);
 
 /**
  * Popup size in terminal cells or an integer percentage from one through one hundred.

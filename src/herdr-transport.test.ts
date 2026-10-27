@@ -289,8 +289,8 @@ test.for(["malformed", "timeout", "interrupted"] as const)(
             Effect.gen(function* () {
               const transport = yield* HerdrTransport;
               const handshake = transport.openStream(
-                "pane.graphics.stream",
-                { paneId: "pane-1" },
+                "server.ssh_agent.register",
+                { socketPath: "/tmp/herdr-sdk-agent.sock" },
                 { requestTimeout: Duration.millis(30) },
               );
               if (failureMode === "interrupted") {
@@ -345,40 +345,14 @@ test("stream handshake preserves split UTF-8 and exact coalesced trailing bytes"
         Effect.scoped(
           Effect.gen(function* () {
             const transport = yield* HerdrTransport;
-            const stream = yield* transport.openStream("pane.graphics.stream", {
-              paneId: "pane-1",
+            const stream = yield* transport.openStream("server.ssh_agent.register", {
+              socketPath: "/tmp/herdr-sdk-agent.sock",
             });
             return yield* Stream.runCollect(stream.readBytes);
           }),
         ),
       );
       expect(Buffer.concat(bytes)).toEqual(trailing);
-    }),
-  ));
-
-test("graphics bytes do not replay the test server handshake", (context) =>
-  runTransportTest(
-    context,
-    Effect.gen(function* () {
-      const server = yield* startHerdrTestServer((request) =>
-        Effect.succeed(makeHerdrSuccessResponse(request)),
-      );
-      yield* withTransport(
-        server.socketPath,
-        Effect.scoped(
-          Effect.gen(function* () {
-            const transport = yield* HerdrTransport;
-            const stream = yield* transport.openStream("pane.graphics.stream", {
-              paneId: "pane-1",
-            });
-            yield* transport.writeStreamBytes(stream, Buffer.from("{}\nframe"));
-            yield* server.waitFor("data");
-            expect(
-              server.requests.filter((request) => request.method === "pane.graphics.stream"),
-            ).toHaveLength(1);
-          }),
-        ),
-      );
     }),
   ));
 
@@ -443,7 +417,11 @@ test.for(["request", "stream"] as const)(
               const failure = yield* (
                 kind === "request"
                   ? transport.request("server.stop", {}, options)
-                  : transport.openStream("pane.graphics.stream", { paneId: "pane-1" }, options)
+                  : transport.openStream(
+                      "server.ssh_agent.register",
+                      { socketPath: "/tmp/herdr-sdk-agent.sock" },
+                      options,
+                    )
               ).pipe(Effect.flip);
               expect(failure).toMatchObject({
                 _tag: "HerdrRequestTimeout",
@@ -459,39 +437,6 @@ test.for(["request", "stream"] as const)(
       }),
     ),
 );
-
-test("peer disconnect during a graphics write is a typed failure, not an uncaught socket error", (context) =>
-  runTransportTest(
-    context,
-    Effect.gen(function* () {
-      const server = yield* startHerdrTestServer((request, socket) =>
-        Effect.sync(() => {
-          if (request.method === "pane.graphics.stream")
-            socket.once("data", () => socket.destroy());
-          return makeHerdrSuccessResponse(request);
-        }),
-      );
-      const failure = yield* withTransport(
-        server.socketPath,
-        Effect.scoped(
-          Effect.gen(function* () {
-            const transport = yield* HerdrTransport;
-            const stream = yield* transport.openStream("pane.graphics.stream", {
-              paneId: "pane-1",
-            });
-            return yield* transport
-              .writeStreamBytes(stream, new Uint8Array(8 * 1024 * 1024))
-              .pipe(Effect.flip);
-          }),
-        ),
-      );
-      expect(failure).toMatchObject({
-        _tag: "HerdrTransportError",
-        operation: "graphics_write",
-        reason: "write",
-      });
-    }),
-  ));
 
 test.for([
   { event: "workspace_closed", data: {}, tag: "HerdrInvalidResponse" },

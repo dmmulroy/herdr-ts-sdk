@@ -21,6 +21,9 @@ import {
   PaneLinkActivateInput,
   type PaneLinkActivateInputEncoded,
   PaneLinkActivatedResult,
+  PaneLinkResolveInput,
+  type PaneLinkResolveInputEncoded,
+  PaneLinkResolvedResult,
 } from "./herdr-pane-interaction-models.ts";
 import { defineHerdrOperation } from "./herdr-effect-operation.ts";
 import { decodeHerdrInput, decodeHerdrWire } from "./herdr-schema-boundary.ts";
@@ -40,6 +43,8 @@ const parseSelectionResult = Schema.decodeUnknownEffect(PaneSelectionResult);
 const parseMotionResult = Schema.decodeUnknownEffect(PaneCopyMotionResult);
 const parseSearchResult = Schema.decodeUnknownEffect(PaneCopySearchResult);
 const parseLinkResult = Schema.decodeUnknownEffect(PaneLinkActivatedResult);
+const parseLinkResolve = Schema.decodeEffect(PaneLinkResolveInput);
+const parseLinkResolvedResult = Schema.decodeUnknownEffect(PaneLinkResolvedResult);
 const wireCopyMotions = {
   lineEnd: "line_end",
   firstNonBlank: "first_non_blank",
@@ -53,8 +58,13 @@ const wireCopyMotions = {
   nextParagraph: "next_paragraph",
 } as const;
 
-/** PaneService's text navigation and visible-link capability. @category services @since 0.9.0 */
+/** PaneService's text navigation, screen clearing, and visible-link capability. @category services @since 0.9.0 */
 export interface IPaneInteraction {
+  /** Clears the pane's screen and scrollback, keeping the current prompt line; full-screen apps are left alone. */
+  readonly clear: (
+    id: PaneId,
+    options?: HerdrTransportRequestOptionsEncoded,
+  ) => Effect.Effect<void, HerdrTransportRequestError>;
   /** Scrolls the server terminal and returns its pane information. */
   readonly scroll: (
     id: PaneId,
@@ -89,6 +99,12 @@ export interface IPaneInteraction {
   ) => Effect.Effect<PaneCopySearchResult, HerdrTransportRequestError>;
   /** Visible-link resolution and plugin activation. */
   readonly link: {
+    /** Reports the viewport cells covered by the link under a cell without activating it. */
+    readonly resolve: (
+      id: PaneId,
+      input: PaneLinkResolveInputEncoded,
+      options?: HerdrTransportRequestOptionsEncoded,
+    ) => Effect.Effect<PaneLinkResolvedResult, HerdrTransportRequestError>;
     /** Invokes a matching plugin link handler; does not open a browser. */
     readonly activate: (
       id: PaneId,
@@ -101,6 +117,9 @@ export interface IPaneInteraction {
 /** Constructs parent-owned pane interaction operations using the shared transport. @category constructors @since 0.9.0 */
 export function makePaneInteraction(transport: IHerdrTransport): IPaneInteraction {
   return {
+    clear: defineHerdrOperation("PaneService.clear", (id, options = {}) =>
+      transport.request("pane.clear", { paneId: id }, options).pipe(Effect.asVoid),
+    ),
     scroll: defineHerdrOperation("PaneService.scroll", (id, input, options = {}) =>
       Effect.gen(function* () {
         const parsed = yield* decodeHerdrInput("PaneService.scroll", parseScroll, input);
@@ -155,6 +174,25 @@ export function makePaneInteraction(transport: IHerdrTransport): IPaneInteractio
       }),
     ),
     link: {
+      resolve: defineHerdrOperation("PaneService.link.resolve", (id, input, options = {}) =>
+        Effect.gen(function* () {
+          const parsed = yield* decodeHerdrInput(
+            "PaneService.link.resolve",
+            parseLinkResolve,
+            input,
+          );
+          const response = yield* transport.request(
+            "pane.link.resolve",
+            { paneId: id, ...parsed },
+            options,
+          );
+          return yield* decodeHerdrWire(
+            parseLinkResolvedResult,
+            response.result,
+            response.requestId,
+          );
+        }),
+      ),
       activate: defineHerdrOperation("PaneService.link.activate", (id, input, options = {}) =>
         Effect.gen(function* () {
           const parsed = yield* decodeHerdrInput("PaneService.link.activate", parseLink, input);

@@ -25,8 +25,8 @@ node scripts/sdk-trace-viewer.mjs --http 19418 --grpc 19417 --browser-port 19400
 In another terminal, run a fixture-only experiment or focused test:
 
 ```sh
-node scripts/sdk-lab.mjs --scenario graphics-writer --trace
-node scripts/sdk-verification-cli.mjs test run src/pane-graphics.test.ts --trace
+node scripts/sdk-lab.mjs --scenario ssh-agent-lease --trace
+node scripts/sdk-verification-cli.mjs test run src/server-ssh-agent.test.ts --trace
 node scripts/sdk-verify.mjs generated --trace
 ```
 
@@ -60,9 +60,7 @@ interrupted execution outcomes: an expected, caught SDK error does not make its 
   response waiting/decoding, and cleanup. Successful compatibility waiters link the shared root;
   failed waiters currently have no link. Socket-close spans measure the existing synchronous
   destroy call, not a later operating-system close notification.
-- Graphics spans separate lock acquisition from acknowledgement waiting. Later writer calls link
-  their acquisition rather than parenting themselves beneath an already-ended acquisition span.
-  Subscriptions emit bounded lifetime counters and closure summaries before their span ends,
+- Subscriptions emit bounded lifetime counters and closure summaries before their span ends,
   including failure and interruption. There is no per-byte or per-event span flood.
 - Product outcome and telemetry delivery are separate. `exported` means HTTP-accepted records,
   **not confirmed viewer ingestion**. `partial` and `unavailable` must not be treated as complete

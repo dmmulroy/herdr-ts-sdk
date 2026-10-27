@@ -99,3 +99,41 @@ export const ClientShellMouseInput = Schema.Struct({
 export type ClientShellMouseInput = typeof ClientShellMouseInput.Type;
 /** Caller-supplied semantic mouse event. @category inputs @since 0.9.0 */
 export type ClientShellMouseInputEncoded = typeof ClientShellMouseInput.Encoded;
+/** One host terminal RGB color; each channel is an 8-bit integer from 0 to 255. @category schemas @since 0.9.5 */
+export const ClientShellHostColor = Schema.Struct({ r: U8, g: U8, b: U8 });
+/** Parsed host terminal RGB color. @category models @since 0.9.5 */
+export type ClientShellHostColor = typeof ClientShellHostColor.Type;
+/** Caller-supplied host terminal RGB color. @category inputs @since 0.9.5 */
+export type ClientShellHostColorEncoded = typeof ClientShellHostColor.Encoded;
+/**
+ * Maximum palette entries in one host theme update, matching Herdr's client-side batching bound.
+ * @category constants @since 0.9.5
+ */
+export const CLIENT_SHELL_HOST_PALETTE_MAX_ENTRIES = 256;
+/**
+ * One outer (host) terminal theme update forwarded so pane applications pick matching colors:
+ * a default foreground/background color, 1–256 indexed palette colors, or the light/dark appearance.
+ * A background color also infers appearance on the server unless one was set explicitly.
+ * @category schemas @since 0.9.5
+ */
+export const ClientShellHostThemeInput = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("defaultColor"),
+    target: Schema.Literals(["foreground", "background"]),
+    color: ClientShellHostColor,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("palette"),
+    colors: Schema.Array(Schema.Struct({ index: U8, color: ClientShellHostColor })).check(
+      Schema.isLengthBetween(1, CLIENT_SHELL_HOST_PALETTE_MAX_ENTRIES),
+    ),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("appearance"),
+    appearance: Schema.Literals(["dark", "light"]),
+  }),
+]);
+/** Parsed host terminal theme update. @category models @since 0.9.5 */
+export type ClientShellHostThemeInput = typeof ClientShellHostThemeInput.Type;
+/** Caller-supplied host terminal theme update. @category inputs @since 0.9.5 */
+export type ClientShellHostThemeInputEncoded = typeof ClientShellHostThemeInput.Encoded;

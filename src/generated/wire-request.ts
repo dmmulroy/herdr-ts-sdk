@@ -25,6 +25,11 @@ export type Request = {
       [k: string]: unknown;
     }
   | {
+      method: "server.ssh_agent.register";
+      params: ServerSshAgentRegisterParams;
+      [k: string]: unknown;
+    }
+  | {
       method: "server.agent_manifests";
       params: EmptyParams;
       [k: string]: unknown;
@@ -305,6 +310,11 @@ export type Request = {
       [k: string]: unknown;
     }
   | {
+      method: "pane.clear";
+      params: PaneTarget;
+      [k: string]: unknown;
+    }
+  | {
       method: "pane.edit_scrollback";
       params: PaneTarget;
       [k: string]: unknown;
@@ -355,6 +365,11 @@ export type Request = {
       [k: string]: unknown;
     }
   | {
+      method: "pane.link.resolve";
+      params: PaneLinkActivateParams;
+      [k: string]: unknown;
+    }
+  | {
       method: "pane.rename";
       params: PaneRenameParams;
       [k: string]: unknown;
@@ -377,21 +392,6 @@ export type Request = {
   | {
       method: "pane.read";
       params: PaneReadParams;
-      [k: string]: unknown;
-    }
-  | {
-      method: "pane.graphics.set";
-      params: PaneGraphicsSetParams;
-      [k: string]: unknown;
-    }
-  | {
-      method: "pane.graphics.clear";
-      params: PaneGraphicsClearParams;
-      [k: string]: unknown;
-    }
-  | {
-      method: "pane.graphics.info";
-      params: PaneTarget;
       [k: string]: unknown;
     }
   | {
@@ -646,7 +646,6 @@ export type PaneCopyMotion =
   | "next_paragraph";
 export type PaneCopySearchDirection = "forward" | "backward";
 export type PaneRightClickTarget = "herdr" | "pane";
-export type PaneGraphicsFormat = "png" | "rgb" | "rgba" | "bgra";
 export type PaneAgentState = "idle" | "working" | "blocked" | "unknown";
 export type Subscription =
   | {
@@ -910,6 +909,13 @@ export interface ServerLiveHandoffParams {
   expected_protocol?: number | null;
   expected_version?: string | null;
   import_exe?: string | null;
+  [k: string]: unknown;
+}
+export interface ServerSshAgentRegisterParams {
+  /**
+   * Absolute remote-host agent socket. Registration lasts until this API connection closes.
+   */
+  socket_path: string;
   [k: string]: unknown;
 }
 export interface NotificationShowParams {
@@ -1298,35 +1304,17 @@ export interface PaneReadParams {
   strip_ansi?: boolean;
   [k: string]: unknown;
 }
-export interface PaneGraphicsSetParams {
-  data_base64?: string;
-  format: PaneGraphicsFormat;
-  image_height: number;
-  image_width: number;
-  layer_id?: string | null;
-  pane_id: string;
-  placement?: PaneGraphicsPlacementParams;
-  z_index?: number;
-  [k: string]: unknown;
-}
-export interface PaneGraphicsPlacementParams {
-  grid_cols?: number;
-  grid_rows?: number;
-  viewport_col?: number;
-  viewport_row?: number;
-  [k: string]: unknown;
-}
-export interface PaneGraphicsClearParams {
-  layer_id?: string | null;
-  pane_id: string;
-  [k: string]: unknown;
-}
 export interface PaneReportAgentParams {
   agent: string;
   agent_session_id?: string | null;
   agent_session_path?: string | null;
   message?: string | null;
   pane_id: string;
+  /**
+   * Command that resumes this agent's session after a Herdr restart. The
+   * first element must be a plain command name.
+   */
+  resume_argv?: string[] | null;
   seq?: number | null;
   source: string;
   state: PaneAgentState;
@@ -1337,6 +1325,11 @@ export interface PaneReportAgentSessionParams {
   agent_session_id?: string | null;
   agent_session_path?: string | null;
   pane_id: string;
+  /**
+   * Command that resumes this agent's session after a Herdr restart. The
+   * first element must be a plain command name.
+   */
+  resume_argv?: string[] | null;
   seq?: number | null;
   session_start_source?: string | null;
   source: string;

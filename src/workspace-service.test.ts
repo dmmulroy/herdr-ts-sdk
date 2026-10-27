@@ -50,7 +50,7 @@ test("workspace service implements every workspace wire operation", (context) =>
               case "ping":
                 return {
                   id: request.id,
-                  result: { type: "pong", version: "0.9.0", protocol: 22 },
+                  result: { type: "pong", version: "0.9.5", protocol: 22 },
                 };
               case "workspace.create":
                 return {
