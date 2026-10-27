@@ -249,7 +249,7 @@ describe("read-only viewer 0.5.0 query adapter", () => {
         const node = base.spans[0];
         if (!node) return yield* Effect.die("missing event test span");
         const event = {
-          name: "herdr.graphics.invalidated",
+          name: "herdr.subscription.closed",
           timestamp: "1788630424281000001",
           droppedAttributesCount: 0,
           attributes: [
@@ -295,7 +295,7 @@ describe("read-only viewer 0.5.0 query adapter", () => {
         });
         expect(result.spans[0]?.events).toHaveLength(16);
         expect(result.spans[0]?.events[0]).toEqual({
-          name: "herdr.graphics.invalidated",
+          name: "herdr.subscription.closed",
           timestamp: event.timestamp,
           droppedAttributesCount: 0,
           attributes: [{ key: "herdr.reason", value: "timeout" }],

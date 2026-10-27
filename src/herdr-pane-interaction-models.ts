@@ -1,5 +1,5 @@
 /**
- * Models revision-guarded pane selection, copy navigation, scrolling, and link activation.
+ * Models revision-guarded pane selection, copy navigation, scrolling, and link resolution/activation.
  * Coordinates and content revisions refer to server terminal content, not a client's projection.
  * @since 0.9.0
  */
@@ -140,6 +140,24 @@ export const PaneLinkActivateInput = Schema.Struct({
 export interface PaneLinkActivateInput extends Schema.Schema.Type<typeof PaneLinkActivateInput> {}
 /** Caller-supplied link activation coordinates. @category inputs @since 0.9.0 */
 export type PaneLinkActivateInputEncoded = typeof PaneLinkActivateInput.Encoded;
+/** Resolves the visible link under a viewport cell with the same guards as activation; has no side effects. @category schemas @since 0.9.5 */
+export const PaneLinkResolveInput = PaneLinkActivateInput;
+/** Parsed visible-link resolution. @category models @since 0.9.5 */
+export interface PaneLinkResolveInput extends Schema.Schema.Type<typeof PaneLinkResolveInput> {}
+/** Caller-supplied link resolution coordinates. @category inputs @since 0.9.5 */
+export type PaneLinkResolveInputEncoded = typeof PaneLinkResolveInput.Encoded;
+/** One viewport row's inclusive display-cell column span covered by a link. @category schemas @since 0.9.5 */
+export const PaneLinkRegion = Schema.Struct({
+  row: PaneColumn,
+  startCol: PaneColumn,
+  endCol: PaneColumn,
+}).pipe(Schema.encodeKeys({ startCol: "start_col", endCol: "end_col" }));
+/** Viewport cells covered by a resolved link. @category models @since 0.9.5 */
+export interface PaneLinkRegion extends Schema.Schema.Type<typeof PaneLinkRegion> {}
+/** Regions of the link under the requested cell; empty when no link is there. Wrapped links span several rows. @category schemas @since 0.9.5 */
+export const PaneLinkResolvedResult = Schema.Struct({ regions: Schema.Array(PaneLinkRegion) });
+/** Visible-link resolution result. @category models @since 0.9.5 */
+export interface PaneLinkResolvedResult extends Schema.Schema.Type<typeof PaneLinkResolvedResult> {}
 /** Plugin handling result; an unhandled URL does not mean a browser was opened. @category schemas @since 0.9.0 */
 export const PaneLinkActivatedResult = Schema.Struct({
   url: Schema.OptionFromOptionalKey(Schema.String),

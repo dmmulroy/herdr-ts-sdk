@@ -13,36 +13,8 @@ const schemaId = "https://herdr.dev/herdr-api.schema.json";
 const ajv = new Ajv2020({ allErrors: true, strict: false, validateFormats: false });
 ajv.addSchema({ ...herdrApiSchema, $id: schemaId });
 const requestParser = ajv.compile<Request>({ $ref: `${schemaId}#/schemas/request` });
-const graphicsStreamRequestParser = ajv.compile<HerdrGraphicsStreamRequest>({
-  type: "object",
-  required: ["id", "method", "params"],
-  properties: {
-    id: { type: "string" },
-    method: { const: "pane.graphics.stream" },
-    params: {
-      type: "object",
-      required: ["pane_id"],
-      properties: {
-        pane_id: { type: "string" },
-        layer_id: { type: ["string", "null"] },
-        z_index: { type: "integer" },
-      },
-    },
-  },
-});
-
-interface HerdrGraphicsStreamRequest {
-  readonly id: string;
-  readonly method: "pane.graphics.stream";
-  readonly params: {
-    readonly pane_id: string;
-    readonly layer_id?: string | null;
-    readonly z_index?: number;
-  };
-}
-
-/** Every request accepted by the test server, including the schema-skipped graphics stream. */
-export type HerdrTestRequest = Request | HerdrGraphicsStreamRequest;
+/** Every request accepted by the test server: exactly the schema-declared request union. */
+export type HerdrTestRequest = Request;
 
 /** Typed response emitted by the local socket test server. */
 export type HerdrTestResponse = SuccessResponse | ErrorResponse;
@@ -53,7 +25,7 @@ export class HerdrRawTestResponse {
   constructor(readonly value: string | Uint8Array) {}
 }
 
-/** Data observes post-request socket chunks, not graphics frames; boundaries are nondeterministic. */
+/** Data observes post-request socket chunks; chunk boundaries are nondeterministic. */
 export type HerdrTestEventKind = "accept" | "request" | "data" | "close";
 
 /** Metadata deliberately excludes request IDs, methods, payloads, paths, and error text. */
@@ -267,7 +239,7 @@ export const startHerdrTestServer = Effect.fn("startHerdrTestServer")(function* 
           const parsed: unknown = JSON.parse(
             new TextDecoder("utf-8", { fatal: true }).decode(input.subarray(0, newline)),
           );
-          if (!requestParser(parsed) && !graphicsStreamRequestParser(parsed)) {
+          if (!requestParser(parsed)) {
             fail();
             return;
           }

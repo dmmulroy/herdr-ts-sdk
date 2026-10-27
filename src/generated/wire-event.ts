@@ -264,6 +264,7 @@ export interface PaneInfo {
   foreground_cwd?: string | null;
   label?: string | null;
   pane_id: string;
+  restore_error?: string | null;
   revision: number;
   scroll?: PaneScrollInfo | null;
   state_labels?: {

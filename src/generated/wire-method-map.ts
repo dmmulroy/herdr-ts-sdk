@@ -103,6 +103,10 @@ export interface WireMethodMap {
     readonly params: Extract<Request, { readonly method: "notification.show" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "notification_show" }>;
   };
+  readonly "pane.clear": {
+    readonly params: Extract<Request, { readonly method: "pane.clear" }>["params"];
+    readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
+  };
   readonly "pane.clear_agent_authority": {
     readonly params: Extract<Request, { readonly method: "pane.clear_agent_authority" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
@@ -143,26 +147,6 @@ export interface WireMethodMap {
     readonly params: Extract<Request, { readonly method: "pane.get" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "pane_info" }>;
   };
-  readonly "pane.graphics.clear": {
-    readonly params: Extract<Request, { readonly method: "pane.graphics.clear" }>["params"];
-    readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
-  };
-  readonly "pane.graphics.info": {
-    readonly params: Extract<Request, { readonly method: "pane.graphics.info" }>["params"];
-    readonly result: Extract<ResponseResult, { readonly type: "pane_graphics_info" }>;
-  };
-  readonly "pane.graphics.set": {
-    readonly params: Extract<Request, { readonly method: "pane.graphics.set" }>["params"];
-    readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
-  };
-  readonly "pane.graphics.stream": {
-    readonly params: {
-      readonly pane_id: string;
-      readonly layer_id?: string | null;
-      readonly z_index?: number;
-    };
-    readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
-  };
   readonly "pane.input.set": {
     readonly params: Extract<Request, { readonly method: "pane.input.set" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
@@ -174,6 +158,10 @@ export interface WireMethodMap {
   readonly "pane.link.activate": {
     readonly params: Extract<Request, { readonly method: "pane.link.activate" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "pane_link_activated" }>;
+  };
+  readonly "pane.link.resolve": {
+    readonly params: Extract<Request, { readonly method: "pane.link.resolve" }>["params"];
+    readonly result: Extract<ResponseResult, { readonly type: "pane_link_resolved" }>;
   };
   readonly "pane.list": {
     readonly params: Extract<Request, { readonly method: "pane.list" }>["params"];
@@ -337,6 +325,10 @@ export interface WireMethodMap {
     readonly params: Extract<Request, { readonly method: "server.reload_config" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "config_reload" }>;
   };
+  readonly "server.ssh_agent.register": {
+    readonly params: Extract<Request, { readonly method: "server.ssh_agent.register" }>["params"];
+    readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
+  };
   readonly "server.stop": {
     readonly params: Extract<Request, { readonly method: "server.stop" }>["params"];
     readonly result: Extract<ResponseResult, { readonly type: "ok" }>;
@@ -427,7 +419,7 @@ export interface WireMethodMap {
   };
 }
 
-/** Every schema-declared request method plus the schema-skipped binary graphics stream. */
+/** Every schema-declared request method. */
 export type WireMethod = keyof WireMethodMap;
 
 /** Success discriminants accepted for each correlated wire method. */
@@ -457,6 +449,7 @@ export const wireResultTypesByMethod = {
   "layout.export": ["layout_export"],
   "layout.set_split_ratio": ["layout_split_ratio_set"],
   "notification.show": ["notification_show"],
+  "pane.clear": ["ok"],
   "pane.clear_agent_authority": ["ok"],
   "pane.close": ["ok"],
   "pane.copy_motion": ["pane_copy_motion"],
@@ -467,13 +460,10 @@ export const wireResultTypesByMethod = {
   "pane.focus": ["pane_info"],
   "pane.focus_direction": ["pane_focus_direction"],
   "pane.get": ["pane_info"],
-  "pane.graphics.clear": ["ok"],
-  "pane.graphics.info": ["pane_graphics_info"],
-  "pane.graphics.set": ["ok"],
-  "pane.graphics.stream": ["ok"],
   "pane.input.set": ["ok"],
   "pane.layout": ["pane_layout"],
   "pane.link.activate": ["pane_link_activated"],
+  "pane.link.resolve": ["pane_link_resolved"],
   "pane.list": ["pane_list"],
   "pane.move": ["pane_move"],
   "pane.neighbor": ["pane_neighbor"],
@@ -513,6 +503,7 @@ export const wireResultTypesByMethod = {
   "server.live_handoff": ["ok"],
   "server.reload_agent_manifests": ["agent_manifest_reload"],
   "server.reload_config": ["config_reload"],
+  "server.ssh_agent.register": ["ok"],
   "server.stop": ["ok"],
   "session.snapshot": ["session_snapshot"],
   "tab.close": ["ok"],

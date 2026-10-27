@@ -3,6 +3,7 @@ import type {
   AgentTarget,
   AgentTargetEncoded,
   HerdrAbsolutePath,
+  HerdrResumeArgv,
   HerdrRequestDeadline,
   HerdrSplitRatio,
   IHerdrSdk,
@@ -39,6 +40,7 @@ type AgentSessionFixture = {
   sessionStartSource: Option.None<string>;
   sessionId: Option.Some<string>;
   sessionPath: Option.None<HerdrAbsolutePath>;
+  resumeArgv: Option.None<HerdrResumeArgv>;
 };
 
 declare const sdk: IHerdrSdk;

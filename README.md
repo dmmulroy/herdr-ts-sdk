@@ -3,8 +3,8 @@
 Effect-native TypeScript access to Herdr's local Unix-socket API.
 
 The SDK exposes every Herdr operation as a typed `Effect`, decodes public inputs and wire responses
-with Effect Schema, represents live events as `Stream`, and owns graphics-stream cleanup with
-`Scope`. The root `HerdrSdk` service keeps the convenient namespace-oriented API while preserving
+with Effect Schema, represents live events as `Stream`, and owns long-lived connection cleanup
+with `Scope`. The root `HerdrSdk` service keeps the convenient namespace-oriented API while preserving
 precise errors, dependencies, and interruption.
 
 ```ts
@@ -26,14 +26,20 @@ const summary = await Effect.runPromise(program.pipe(Effect.provide(herdrSdkLaye
 
 ## Status and compatibility
 
-- SDK version: `0.9.0` (unreleased baseline)
-- Minimum Herdr release: `0.9.0`; supported wire protocol: **22 only**
+- SDK version: `0.9.5` (unreleased baseline)
+- Minimum Herdr release: `0.9.5`; supported wire protocol: **22 only**
 - Effect: `4.0.0-beta.105`
 - Runtime: Node.js 20 or newer on a platform supported by Herdr's local socket server
 
 The SDK verifies protocol compatibility before ordinary requests and shares that compatibility
 result across the Layer graph. A server on another protocol fails with
 `HerdrUnsupportedProtocol`; install matching Herdr and SDK releases instead of bypassing the check.
+
+Herdr 0.9.1–0.9.5 kept protocol 22, so the protocol check cannot tell them apart. This SDK targets
+the 0.9.5 API: it adds `panes.clear`, `panes.link.resolve`, and `server.sshAgent`, which earlier
+servers answer with `unknown_method` (a `HerdrServerError`), and it no longer offers the
+`pane.graphics.*` socket API that 0.9.2 removed. Applications draw images by writing standard Kitty
+graphics to their own pane's terminal output.
 
 `@herdr/sdk` is not currently published to npm. To use it today, build and pack this repository:
 
@@ -178,8 +184,9 @@ Every namespace module follows the same public construction convention:
 The root equivalents are `IHerdrSdk`, `HerdrSdk`, `makeHerdrSdk`,
 `herdrSdkLayerWithoutDependencies`, `herdrSdkLayer`, and `herdrSdkLayerFromOptions`.
 
-Nested capability contracts are exported as `IClientWindowTitle`, `IPaneGraphics`,
-`PaneGraphicsWriter`, `IAgentView`, `IPluginActions`, `IPluginLogs`, and `IPluginPanes`. The pure
+Nested capability contracts are exported as `IClientWindowTitle`, `IServerSshAgent`,
+`ServerSshAgentRegistration`, `IPaneInteraction`, `IAgentView`, `IPluginActions`, `IPluginLogs`,
+and `IPluginPanes`. The pure
 identifier-constructor contract is `IHerdrIds`.
 
 ### Service construction export index
@@ -223,6 +230,31 @@ constructed through `herdr.ids` or returned by another SDK operation.
 | `reloadConfig(options?)`         | Reloads server configuration and returns `ConfigReloadResult`. |
 | `getAgentManifests(options?)`    | Returns current `AgentManifestStatus`.                         |
 | `reloadAgentManifests(options?)` | Refreshes and returns all `AgentManifest` values.              |
+
+### `server.sshAgent`
+
+| Operation                                | Result and behavior                                                                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| `withRegistration(input, use, options?)` | Registers an SSH agent socket for the callback and releases it on every exit path. |
+| `registerScoped(input, options?)`        | Advanced acquisition; the registration lasts until the caller's `Scope` closes.    |
+
+Herdr panes reach SSH agents through a session-local agent address. Registration offers another
+absolute, user-owned agent socket on the server host for as long as its connection stays open;
+Herdr keeps a working agent it inherited and otherwise selects the earliest live registration.
+Check `PingResult.capabilities` for `sshAgentRegistration` first: unsupported servers answer with
+`ssh_agent_unavailable`, and rejected sockets with `invalid_ssh_agent`. If Herdr closes the
+registration first, `withRegistration` interrupts the callback and fails with
+`HerdrSshAgentRegistrationClosed`.
+
+```ts
+const forwardAgent = (socketPath: string) =>
+  Effect.gen(function* () {
+    const herdr = yield* HerdrSdk;
+    yield* herdr.server.sshAgent.withRegistration({ socketPath }, (registration) =>
+      registration.awaitClosed(),
+    );
+  });
+```
 
 ### `session`
 
@@ -305,7 +337,9 @@ caller-supplied directory.
 | `selection.read(paneId, input, options?)`        | Reads absolute-coordinate text with an optional content revision guard.                                   |
 | `copyMotion(paneId, input, options?)`            | Computes a cursor position and content revision without typing input.                                     |
 | `copySearch(paneId, input, options?)`            | Searches an exact content revision; query limit is 4096 UTF-8 bytes, match window is at most 1024 ranges. |
+| `link.resolve(paneId, input, options?)`          | Returns the viewport regions covered by the link under a cell, without side effects.                      |
 | `link.activate(paneId, input, options?)`         | Resolves a visible link and invokes a matching plugin; does not open a browser.                           |
+| `clear(paneId, options?)`                        | Clears screen and scrollback, keeping the current prompt line; full-screen apps are left alone.           |
 | `list(input?, options?)`                         | Lists panes, optionally within a workspace.                                                               |
 | `current(input?, options?)`                      | Resolves the caller or foreground pane.                                                                   |
 | `get(id, options?)`                              | Reads one pane.                                                                                           |
@@ -317,14 +351,39 @@ caller-supplied directory.
 | `sendInput(id, input, options?)`                 | Sends text and named keys as one input operation.                                                         |
 | `read(id, input, options?)`                      | Reads visible, recent, or recent-unwrapped output.                                                        |
 | `waitForOutput(id, input, options?)`             | Waits server-side for a substring or regular-expression match.                                            |
-| `reportAgent(id, input, options?)`               | Reports source-owned agent state.                                                                         |
-| `reportAgentSession(id, input, options?)`        | Attaches an upstream agent-session reference.                                                             |
+| `reportAgent(id, input, options?)`               | Reports source-owned agent state, optionally with a `resumeArgv` restart command.                         |
+| `reportAgentSession(id, input, options?)`        | Attaches an upstream agent-session reference, optionally with a `resumeArgv` restart command.             |
 | `reportMetadata(id, input, options?)`            | Replaces or removes source-owned pane metadata.                                                           |
 | `clearAgentAuthority(id, input?, options?)`      | Clears agent-report authority, optionally by version.                                                     |
 | `releaseAgent(id, input, options?)`              | Releases one source-owned agent report.                                                                   |
 | `close(id, options?)`                            | Closes one pane.                                                                                          |
 
 Selection/copy/link operations preserve `stale_content` and do not retry coordinates against new text. Copy search's `total` can exceed `matches.length`. Content revisions are distinct from endpoint projection and surface revisions.
+
+`resumeArgv` lets an agent tell Herdr how to reopen its exact session after a server restart. It is
+parsed by `HerdrResumeArgv` before any request: one to 64 arguments, at most 8 KiB of UTF-8, no
+apostrophes or control characters, and a first element that is a plain command name rather than a
+path. Herdr keeps it only while the same `source` and `agent` hold the pane, so report agent state
+before attaching it; otherwise the server rejects the report with `resume_not_accepted`.
+
+```ts
+const reportResumableSession = (sessionId: string) =>
+  Effect.gen(function* () {
+    const herdr = yield* HerdrSdk;
+    const pane = yield* herdr.panes.current();
+    yield* herdr.panes.reportAgent(pane.id, {
+      source: "custom:my-agent",
+      agent: "my-agent",
+      state: "working",
+    });
+    yield* herdr.panes.reportAgentSession(pane.id, {
+      source: "custom:my-agent",
+      agent: "my-agent",
+      sessionId,
+      resumeArgv: ["my-agent", "--resume", sessionId],
+    });
+  });
+```
 
 `reportMetadata` controls presentation, not agent lifecycle. For example:
 
@@ -349,43 +408,6 @@ const describeTask = Effect.gen(function* () {
   at most 16 entries, with names matching `^[A-Za-z0-9_-]{1,32}$`.
 - Use `reportAgent` for lifecycle state consumed by waits and notifications. Custom tokens such
   as `$model` need corresponding sidebar configuration to appear there.
-
-### `panes.graphics`
-
-| Operation                                       | Result and behavior                                                                                      |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `info(paneId, options?)`                        | Returns cell dimensions, visibility, formats, direct-file transport, layer limits, and mouse capability. |
-| `set(paneId, frame, options?)`                  | Replaces one graphics layer with an inline PNG, RGB, RGBA, or BGRA frame.                                |
-| `clear(paneId, options?)`                       | Clears every graphics layer for the pane.                                                                |
-| `clearLayer(paneId, input?, options?)`          | Clears one named layer or the primary layer.                                                             |
-| `withStream(paneId, use, options?)`             | Owns a graphics writer for the callback, closing on every exit path.                                     |
-| `withLayerStream(paneId, input, use, options?)` | Owns a named-layer writer for the callback.                                                              |
-| `openStream(paneId, options?)`                  | Advanced scope-owned acquisition for resource composition.                                               |
-| `openLayerStream(paneId, input?, options?)`     | Acquires a writer for one stable layer and z-index.                                                      |
-
-`PaneGraphicsWriter.write` sends inline frames. `writeFile` submits immutable direct-file RGBA or
-BGRA frames and returns `PaneGraphicsFrameAcknowledgement`. Writers have no manual `close`; their
-socket belongs to the acquisition scope.
-
-```ts
-const draw = Effect.gen(function* () {
-  const herdr = yield* HerdrSdk;
-  const pane = yield* herdr.panes.current();
-  yield* herdr.panes.graphics.withLayerStream(
-    pane.id,
-    { layerId: "status", zIndex: 10 },
-    (writer) =>
-      writer.write({
-        format: "rgba",
-        imageWidth: 1,
-        imageHeight: 1,
-        data: Uint8Array.of(34, 197, 94, 255),
-      }),
-  );
-});
-```
-
-One-shot inline writes are limited to 512 KiB; streamed inline frames are limited to 16 MiB.
 
 ### `layouts`
 
@@ -468,6 +490,26 @@ Subscriptions are live-only rather than replay streams. Each execution captures 
 when parsing begins; later caller mutation cannot change that execution's request or event filter.
 One-shot waits follow the same rule. Interrupting the consumer releases the socket.
 
+Event history is bounded. A subscriber that falls behind fails with `HerdrEventsLost` rather than
+silently skipping events. Treat cached state as stale: resubscribe, wait for the new subscription to
+start, and reconcile through authoritative reads such as `session.snapshot`, using events as
+invalidation signals. Snapshots and events share no sequence boundary, so do not replay buffered
+events onto a snapshot.
+
+```ts
+import { Effect, Stream } from "effect";
+import { HerdrSdk } from "@herdr/sdk";
+
+const watchWorkspaces = (onChange: Effect.Effect<void>): Effect.Effect<void, unknown, HerdrSdk> =>
+  Effect.gen(function* () {
+    const herdr = yield* HerdrSdk;
+    yield* herdr.events.subscribe([{ type: "workspace.created" }] as const).pipe(
+      Stream.runForEach(() => onChange),
+      Effect.catchTag("HerdrEventsLost", () => Effect.andThen(onChange, watchWorkspaces(onChange))),
+    );
+  });
+```
+
 ### `integrations`
 
 | Operation                     | Result and behavior                                                                              |
@@ -543,12 +585,13 @@ Connection input also accepts `initialSurface` (`inactive` by default), `mouseCa
 
 Connection operations:
 
-- `snapshot()`, `projections`: current metadata and coalesced replacement projections.
+- `snapshot()`, `projections`: current metadata and coalesced replacement projections. `agentView` carries the full active agent-view definition (filter and sort) as `{ status: "active", view }`, `{ status: "none" }`, or `{ status: "unrecognized" }` for a view this SDK cannot decode.
 - `surface.set({ active })`, `surface.state()`, `surface.states`, `surface.awaitReady()`, `surface.resize(input)`.
 - `input.paste(paneId, { text })`, `input.text(paneId, { text })`, `input.key(paneId, input)`, `input.mouse(paneId, input)`; explicit popup-terminal variants are `pasteInPopup`, `textInPopup`, `keyInPopup`, `mouseInPopup`.
 - `commands.invoke` / `invokeInWorkspace` / `invokeInTab` / `invokeInPane`: same target intent as socket commands, but the first argument is a discovered `ClientShellCommand` from this connection's snapshot.
 - `productAnnouncements.dismiss(input)`, `releaseNotes.dismiss(input)`.
 - `setFocused(boolean)`, `setMouseCapture(boolean)`, `connectionState()`, `awaitClosed()`.
+- `setHostTheme(input)`: forwards the outer terminal's theme so pane applications choose matching colors. It accepts `{ kind: "defaultColor", target: "foreground" | "background", color: { r, g, b } }`, `{ kind: "palette", colors: [{ index, color }] }` (1–256 entries; larger batches are rejected, not split), or `{ kind: "appearance", appearance: "dark" | "light" }`. A background color also infers appearance unless one was set explicitly. The server sends no acknowledgement.
 - `events`: live semantic notifications and host presentation instructions; the SDK does not execute clipboard, graphics escapes, sound, or window-title effects itself.
 
 `client_shell.surface.set` is connection-local. An activation ACK establishes a projection floor, not delivered presentation; wait for `surface.awaitReady()` separately. Patches require an exact base and are applied before publishing complete surfaces. Graphics asset bytes are retained for coalesced scenes. `direct_graphics` is deliberately not negotiated: server-supplied graphics file paths are never opened. This SDK is an endpoint client, not a host TUI renderer or saved-SSH-machine manager.
@@ -578,8 +621,7 @@ For untrusted input, prefer the Effect parsers: `parseWorkspaceId`, `parseTabId`
 `parseHerdrAbsolutePath`, `parseHerdrSessionName`, `parseHerdrMilliseconds`,
 `parseHerdrUnixMilliseconds`, `parseHerdrUnixSeconds`, `parseHerdrRevision`,
 `parseHerdrStateChangeSequence`, `parseHerdrSplitRatio`, `parseHerdrMetadataTtl`,
-`parseHerdrInsertIndex`, `parseHerdrImageDimension`, `parseHerdrByteLength`, and
-`parseHerdrPopupSize`.
+`parseHerdrInsertIndex`, `parseHerdrResumeArgv`, and `parseHerdrPopupSize`.
 
 ## Schema and model catalog
 
@@ -595,20 +637,23 @@ Protocol-22 interaction models are exported from `herdr-pane-interaction-models.
 `WorkspaceId`, `TabId`, `PaneId`, `TerminalId`, `PluginId`, `PluginActionId`, `PluginLogId`,
 `AgentName`, `HerdrAbsolutePath`, `HerdrSessionName`, `HerdrMilliseconds`,
 `HerdrUnixMilliseconds`, `HerdrUnixSeconds`, `HerdrRevision`, `HerdrStateChangeSequence`,
-`HerdrSplitRatio`, `HerdrMetadataTtl`, `HerdrInsertIndex`, `HerdrImageDimension`,
-`HerdrByteLength`, and `HerdrPopupSize`.
+`HerdrSplitRatio`, `HerdrMetadataTtl`, `HerdrInsertIndex`, `HerdrResumeArgv`, and
+`HerdrPopupSize`.
 
 ### Server, client, and resource models
 
 `AgentStatus`, `ReportedAgentState`, `AgentSessionReferenceKind`, `AgentSessionReference`,
 `ServerCapabilities`, `PingResult`, `ConfigReloadResult`, `AgentManifest`, `AgentManifestStatus`,
 `NotificationShowResult`, `ClientWindowTitleResult`, `WorkspaceWorktree`, `Workspace`, `Tab`,
-`PaneScroll`, `Pane`, `Agent`, and `SessionSnapshot`.
+`PaneScroll`, `Pane`, `Agent`, and `SessionSnapshot`. `Pane.restoreError` explains a failed shell or
+directory restore; `Agent.completionSequence` marks an idle transition that completed work,
+independent of whether a client has seen it.
 
 ### Workspace, server, notification, integration, worktree, and tab operations
 
 `WorkspaceCreateOptions`, `WorkspaceCreateResult`, `WorkspaceMetadataReportInput`,
-`WorkspaceMoveInput`, `WorkspaceMoveBlockInput`, `ServerLiveHandoffInput`, `NotificationShowInput`,
+`WorkspaceMoveInput`, `WorkspaceMoveBlockInput`, `ServerLiveHandoffInput`,
+`ServerSshAgentRegisterInput`, `NotificationShowInput`,
 `IntegrationTarget`, `IntegrationChangeResult`, `WorktreeSourceInfo`, `Worktree`,
 `WorktreeListResult`, `WorktreeCreateResult`, `WorktreeOpenResult`, `WorktreeRemoveResult`,
 `WorktreeListInput`, `WorktreeCreateInput`, `WorktreeOpenInput`, `WorktreeRemoveInput`,
@@ -626,11 +671,10 @@ Protocol-22 interaction models are exported from `herdr-pane-interaction-models.
 `PaneAgentSessionReportInput`, `PaneMetadataReportInput`, `PaneClearAgentAuthorityInput`, and
 `PaneReleaseAgentInput`.
 
-### Graphics and layouts
+### Pane interaction and layouts
 
-`PaneGraphicsFileFormat`, `PaneGraphicsInfo`, `PaneGraphicsPlacement`, `PaneGraphicsFormat`,
-`PaneGraphicsFrame`, `PaneGraphicsSetFrame`, `PaneGraphicsLayerInput`, `PaneGraphicsStreamInput`,
-`PaneGraphicsFileFrame`, `PaneGraphicsFrameAcknowledgement`, `LayoutNode`, `LayoutTarget`,
+`PaneLinkActivateInput`, `PaneLinkActivatedResult`, `PaneLinkResolveInput`, `PaneLinkRegion`,
+`PaneLinkResolvedResult`, and the other pane interaction models; `LayoutNode`, `LayoutTarget`,
 `LayoutApplyInput`, `LayoutSetSplitRatioInput`, and `LayoutDescription`.
 
 ### Agents and events
@@ -656,6 +700,7 @@ Encoded interfaces describe the exact caller representation accepted before sche
 
 `WorkspaceCreateOptionsEncoded`, `WorkspaceMetadataReportInputEncoded`,
 `WorkspaceMoveInputEncoded`, `WorkspaceMoveBlockInputEncoded`, `ServerLiveHandoffInputEncoded`,
+`ServerSshAgentRegisterInputEncoded`, `PaneLinkResolveInputEncoded`,
 `NotificationShowInputEncoded`, `WorktreeListInputEncoded`, `WorktreeCreateInputEncoded`,
 `WorktreeOpenInputEncoded`, `WorktreeRemoveInputEncoded`, `TabCreateInputEncoded`,
 `TabListInputEncoded`, `TabMoveInputEncoded`, `PaneInputRoutingInputEncoded`,
@@ -664,9 +709,7 @@ Encoded interfaces describe the exact caller representation accepted before sche
 `PaneCurrentInputEncoded`, `PaneReadInputEncoded`, `PaneInputEncoded`,
 `PaneWaitForOutputInputEncoded`, `PaneAgentReportInputEncoded`,
 `PaneAgentSessionReportInputEncoded`, `PaneMetadataReportInputEncoded`,
-`PaneClearAgentAuthorityInputEncoded`, `PaneReleaseAgentInputEncoded`,
-`PaneGraphicsFrameEncoded`, `PaneGraphicsSetFrameEncoded`, `PaneGraphicsLayerInputEncoded`,
-`PaneGraphicsStreamInputEncoded`, `PaneGraphicsFileFrameEncoded`, `LayoutTargetEncoded`,
+`PaneClearAgentAuthorityInputEncoded`, `PaneReleaseAgentInputEncoded`, `LayoutTargetEncoded`,
 `LayoutApplyInputEncoded`, `LayoutSetSplitRatioInputEncoded`, `AgentTargetEncoded`,
 `AgentStartInputEncoded`, `AgentWaitInputEncoded`, `AgentPromptInputEncoded`,
 `AgentViewSetInputEncoded`, `AgentViewClearInputEncoded`, `EventSubscriptionSpecEncoded`,
@@ -679,25 +722,25 @@ Encoded interfaces describe the exact caller representation accepted before sche
 Expected failures remain values in the Effect error channel and are recoverable with
 `Effect.catchTag` or `Effect.catchTags`.
 
-| Error                       | Meaning                                                                       |
-| --------------------------- | ----------------------------------------------------------------------------- |
-| `HerdrConfigurationError`   | Explicit or ambient configuration could not be decoded or resolved.           |
-| `HerdrInvalidInput`         | A public operation could not parse caller input.                              |
-| `HerdrTransportError`       | Unix-socket connect, read, write, or premature-close failure.                 |
-| `HerdrRequestTimeout`       | A local SDK deadline elapsed; the server outcome may be uncertain.            |
-| `HerdrInvalidResponse`      | Malformed, oversized, mismatched, missing, or schema-invalid server response. |
-| `HerdrUnsupportedProtocol`  | Server and SDK protocol versions differ.                                      |
-| `HerdrUnsupportedResult`    | An operation returned an unsupported success discriminant.                    |
-| `HerdrUnsupportedEvent`     | A stream or wait received an unsupported event discriminant.                  |
-| `HerdrServerError`          | The server rejected a request with an open-code error response.               |
-| `HerdrInvalidFrame`         | Graphics data or dimensions are invalid.                                      |
-| `HerdrImageTooLarge`        | A graphics payload exceeds its write-mode byte limit.                         |
-| `HerdrGraphicsStreamClosed` | A graphics writer was used after its owning scope closed.                     |
+| Error                             | Meaning                                                                       |
+| --------------------------------- | ----------------------------------------------------------------------------- |
+| `HerdrConfigurationError`         | Explicit or ambient configuration could not be decoded or resolved.           |
+| `HerdrInvalidInput`               | A public operation could not parse caller input.                              |
+| `HerdrTransportError`             | Unix-socket connect, read, write, or premature-close failure.                 |
+| `HerdrRequestTimeout`             | A local SDK deadline elapsed; the server outcome may be uncertain.            |
+| `HerdrInvalidResponse`            | Malformed, oversized, mismatched, missing, or schema-invalid server response. |
+| `HerdrUnsupportedProtocol`        | Server and SDK protocol versions differ.                                      |
+| `HerdrUnsupportedResult`          | An operation returned an unsupported success discriminant.                    |
+| `HerdrUnsupportedEvent`           | A stream or wait received an unsupported event discriminant.                  |
+| `HerdrServerError`                | The server rejected a request with an open-code error response.               |
+| `HerdrEventsLost`                 | A subscription fell behind retained history; resubscribe and reconcile.       |
+| `HerdrSshAgentRegistrationClosed` | Herdr closed an SSH agent registration before its owner released it.          |
 
 `HerdrTransportRequestError` is the common request error union. `HerdrTransportMethodError<Method>`
 adds method-specific result failures. `EventOperationError` adds `HerdrUnsupportedEvent` for event
-operations; `ServerOperationError` and `WorkspaceOperationError` name their namespace request
-unions; graphics methods add their frame, size, or lifecycle errors.
+operations and `EventSubscriptionError` further adds `HerdrEventsLost` for live subscriptions;
+`ServerOperationError` and `WorkspaceOperationError` name their namespace request unions, and
+`ServerSshAgentRegistrationError` names how an accepted registration can end.
 
 ```ts
 const resilientPing = herdr.server
@@ -716,20 +759,20 @@ Endpoint failures are separate typed errors: `HerdrEndpointNegotiationError`, `H
 ## Advanced transport API
 
 `HerdrTransport` is public for infrastructure integrations that genuinely need raw protocol access.
-Its `request` method remains method-indexed, `openStream` is limited to `events.subscribe` and
-`pane.graphics.stream`, and `writeStreamBytes` preserves typed socket failures. Most applications
-should use namespace services instead.
+Its `request` method remains method-indexed, and `openStream` is limited to the
+`HerdrStreamWireMethod` connections, `events.subscribe` and `server.ssh_agent.register`, whose
+sockets stay open for the acquiring scope. Most applications should use namespace services instead.
 
 Transport exports are `HerdrTransport`, `HerdrTransportRequestOptions`,
-`HerdrTransportRequestOptionsEncoded`, `HerdrTransportRequestError`,
+`HerdrTransportRequestOptionsEncoded`, `HerdrStreamWireMethod`, `HerdrTransportRequestError`,
 `HerdrTransportMethodError`, `herdrTransportLayerWithoutDependencies`, and
 `herdrTransportLayer`.
 
 ## Examples
 
-The [`examples/`](examples/) directory contains eleven executable, type-checked programs. Start
+The [`examples/`](examples/) directory contains ten executable, type-checked programs. Start
 with the focused recipes, then explore the multi-agent idea lab, declarative command center,
-animated graphics beacon, and attention-sorted agent rescue view.
+and attention-sorted agent rescue view.
 
 ```sh
 pnpm run example -- examples/session-inventory.ts

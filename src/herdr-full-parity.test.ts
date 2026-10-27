@@ -12,12 +12,9 @@ test("every public namespace operation crosses the real Unix-socket seam", (cont
     context,
     Effect.scoped(
       Effect.gen(function* () {
-        const server = yield* startHerdrTestServer((request, socket) =>
+        const server = yield* startHerdrTestServer((request) =>
           Effect.sync(() => {
             const response = makeHerdrSuccessResponse(request);
-            if (request.method === "pane.graphics.stream") {
-              socket.removeAllListeners("data");
-            }
             if (request.method === "events.subscribe") {
               const eventResponse = makeHerdrSuccessResponse({
                 id: request.id,
@@ -72,7 +69,9 @@ test("every public namespace operation crosses the real Unix-socket seam", (cont
             cursor: { row: 0, col: 0 },
             contentRevision: 0,
           });
+          yield* herdr.panes.link.resolve(paneId, { viewportRow: 0, col: 0 });
           yield* herdr.panes.link.activate(paneId, { viewportRow: 0, col: 0 });
+          yield* herdr.panes.clear(paneId);
           yield* herdr.workspaces.create();
           yield* herdr.workspaces.createFromWorkspace(workspaceId);
           yield* herdr.server.stop();
@@ -81,6 +80,10 @@ test("every public namespace operation crosses the real Unix-socket seam", (cont
           yield* herdr.server.getAgentManifests();
           yield* herdr.server.reloadAgentManifests();
           yield* herdr.server.ping();
+          yield* herdr.server.sshAgent.withRegistration(
+            { socketPath: fixturePath },
+            () => Effect.void,
+          );
           yield* herdr.session.snapshot();
           yield* herdr.notifications.show({ title: "fixture" });
           yield* herdr.client.windowTitle.set("fixture");
@@ -151,6 +154,7 @@ test("every public namespace operation crosses the real Unix-socket seam", (cont
             source: "fixture",
             agent: "codex",
             state: "working",
+            resumeArgv: ["codex", "resume", "session-1"],
           });
           yield* herdr.panes.reportAgentSession(paneId, {
             source: "fixture",
@@ -167,31 +171,6 @@ test("every public namespace operation crosses the real Unix-socket seam", (cont
             agent: "codex",
           });
           yield* herdr.panes.close(paneId);
-          yield* herdr.panes.graphics.info(paneId);
-          yield* herdr.panes.graphics.set(paneId, {
-            format: "png",
-            imageWidth: 1,
-            imageHeight: 1,
-            data: Uint8Array.of(1),
-            layerId: "overlay",
-            zIndex: 2,
-          });
-          yield* herdr.panes.graphics.clear(paneId);
-          yield* herdr.panes.graphics.clearLayer(paneId, { layerId: "overlay" });
-          yield* Effect.scoped(
-            Effect.gen(function* () {
-              const writer = yield* herdr.panes.graphics.openLayerStream(paneId, {
-                layerId: "overlay",
-                zIndex: 2,
-              });
-              yield* writer.write({
-                format: "png",
-                imageWidth: 1,
-                imageHeight: 1,
-                data: Uint8Array.of(1),
-              });
-            }),
-          );
 
           yield* herdr.layouts.export({ tabId });
           yield* herdr.layouts.apply({
@@ -283,11 +262,11 @@ test("every public namespace operation crosses the real Unix-socket seam", (cont
           params: { pane_id: "pane-1", right_click: "herdr" },
         });
         expect(
-          server.requests.find(
-            (request) =>
-              request.method === "pane.graphics.stream" && request.params.layer_id === "overlay",
-          ),
-        ).toMatchObject({ params: { z_index: 2 } });
+          server.requests.find((request) => request.method === "pane.report_agent"),
+        ).toMatchObject({ params: { resume_argv: ["codex", "resume", "session-1"] } });
+        expect(
+          server.requests.find((request) => request.method === "server.ssh_agent.register"),
+        ).toMatchObject({ params: { socket_path: "/tmp/herdr-sdk-fixture" } });
         yield* server.waitFor("close", server.requests.length);
         expect(server.openSocketMethods()).toEqual([]);
       }),

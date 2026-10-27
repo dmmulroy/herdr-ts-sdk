@@ -12,7 +12,7 @@ import {
 import { resolveHerdrSocketEndpoint } from "./herdr-transport.ts";
 
 const requestBytes = Buffer.from(
-  `${JSON.stringify({ id: "secret-request-id", method: "pane.graphics.stream", params: { pane_id: "secret-pane-id" } })}\n`,
+  `${JSON.stringify({ id: "secret-request-id", method: "pane.get", params: { pane_id: "secret-pane-id" } })}\n`,
 );
 
 const connectFixture = (socketPath: string) =>
@@ -84,7 +84,7 @@ test("fixture gates response stages and preserves split UTF-8/coalesced raw byte
       );
       yield* gate.release;
       expect(yield* Fiber.join(remaining)).toEqual(response.subarray(2));
-      // Binary LF bytes are data, not a count of graphics frames.
+      // Binary LF bytes after a request are data, not additional requests.
       client.write(Buffer.from([10, 0, 255, 10]));
       yield* server.waitFor("data");
       client.destroy();

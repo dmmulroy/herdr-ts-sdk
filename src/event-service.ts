@@ -2,6 +2,7 @@
  * Consumes Herdr lifecycle and pane events as typed Effect values.
  *
  * Subscriptions are cold, live-only streams with literal-specification narrowing; one-shot waits preserve the event type selected by their matcher.
+ * A subscriber that falls behind Herdr's retained history fails with `HerdrEventsLost` instead of silently skipping events.
  *
  * @since 0.8.2
  */
@@ -37,7 +38,9 @@ import {
 } from "./herdr-models.ts";
 import { decodeHerdrInput, decodeHerdrWire } from "./herdr-schema-boundary.ts";
 import {
+  HerdrEventsLost,
   HerdrInvalidResponse,
+  HerdrServerError,
   HerdrTransportError,
   HerdrUnsupportedEvent,
 } from "./herdr-errors.ts";
@@ -59,6 +62,14 @@ const MAX_EVENT_LINE_BYTES = 1024 * 1024;
 const eventUtf8Decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const HerdrEventEnvelopeProbe = Schema.Struct({ event: Schema.String });
 const parseHerdrEventEnvelopeProbe = Schema.decodeUnknownOption(HerdrEventEnvelopeProbe);
+// Herdr ends a subscription with one error response carrying the original request ID.
+const HerdrSubscriptionErrorResponse = Schema.Struct({
+  id: Schema.String,
+  error: Schema.Struct({ code: Schema.String, message: Schema.String }),
+});
+const parseHerdrSubscriptionErrorResponse = Schema.decodeUnknownOption(
+  HerdrSubscriptionErrorResponse,
+);
 const parseHerdrEventResult = Schema.decodeUnknownResult(HerdrEvent);
 const lifecycleEventKinds = new Set(herdrApiSchema.schemas.event.$defs.EventKind.enum);
 const supportedEventKinds = new Set([
@@ -80,17 +91,29 @@ const parseHerdrEvent = Schema.decodeUnknownEffect(HerdrEvent);
 export type EventOperationError = HerdrTransportRequestError | HerdrUnsupportedEvent;
 
 /**
+ * Expected failures for a live event subscription, including history overrun.
+ *
+ * @category errors
+ * @since 0.9.5
+ */
+export type EventSubscriptionError = EventOperationError | HerdrEventsLost;
+
+/**
  * Typed event subscription and one-shot wait capability.
  *
  * @category services
  * @since 0.8.2
  */
 export interface IEventService {
-  /** Creates a cold, live-only stream whose acceptance defines the event sequence start. */
+  /**
+   * Creates a cold, live-only stream whose acceptance defines the event sequence start.
+   * Fails with `HerdrEventsLost` when the subscriber falls behind; resubscribe and reconcile
+   * with `session.snapshot` rather than replaying buffered events onto a snapshot.
+   */
   readonly subscribe: <const Subscriptions extends readonly EventSubscriptionSpecEncoded[]>(
     subscriptions: Subscriptions,
     options?: HerdrTransportRequestOptionsEncoded,
-  ) => Stream.Stream<EventForSubscription<Subscriptions[number]>, EventOperationError>;
+  ) => Stream.Stream<EventForSubscription<Subscriptions[number]>, EventSubscriptionError>;
   /** Waits for one event and preserves its match-specific result type. */
   readonly wait: <const Match extends EventMatchEncoded>(
     match: Match,
@@ -248,15 +271,40 @@ export const eventServiceLayer = eventServiceLayerWithoutDependencies.pipe(
   Layer.provide(herdrTransportLayer),
 );
 
+type HerdrEventLineError =
+  | HerdrInvalidResponse
+  | HerdrUnsupportedEvent
+  | HerdrEventsLost
+  | HerdrServerError;
+
 function decodeEventLine(
   bytes: Uint8Array,
   requestId: string,
-): Result.Result<HerdrEventValue, HerdrInvalidResponse | HerdrUnsupportedEvent> {
+): Result.Result<HerdrEventValue, HerdrEventLineError> {
   const parsedJson = Result.try({
     try: () => JSON.parse(eventUtf8Decoder.decode(bytes)),
     catch: (cause) => new HerdrInvalidResponse("malformed_json", requestId, cause),
   });
   if (Result.isFailure(parsedJson)) return parsedJson;
+
+  const errorResponse = parseHerdrSubscriptionErrorResponse(parsedJson.success);
+  if (Option.isSome(errorResponse)) {
+    const { id, error } = errorResponse.value;
+    if (id !== requestId) {
+      return Result.fail(
+        new HerdrInvalidResponse(
+          "correlation_mismatch",
+          requestId,
+          new Error(`Herdr returned subscription error for response ID ${id}`),
+        ),
+      );
+    }
+    return Result.fail(
+      error.code === "events_lost"
+        ? new HerdrEventsLost(error.message, requestId)
+        : new HerdrServerError(error.code, error.message, requestId),
+    );
+  }
 
   const parsedEnvelope = Result.try({
     try: () => parseHerdrWireEvent(parsedJson.success, requestId),
@@ -294,7 +342,7 @@ function decodeHerdrEventStream<const Type extends EventSubscriptionSpec["type"]
   bytes: Stream.Stream<Uint8Array, HerdrTransportError>,
   requestId: string,
   selectedTypes: readonly Type[],
-): Stream.Stream<EventForSubscription<{ type: Type }>, EventOperationError> {
+): Stream.Stream<EventForSubscription<{ type: Type }>, EventSubscriptionError> {
   const inputs: Stream.Stream<HerdrEventStreamInput, HerdrTransportError> = bytes.pipe(
     Stream.map((value) => ({ _tag: "Bytes", value }) as const),
     Stream.concat(Stream.succeed({ _tag: "End" } as const)),
@@ -320,15 +368,12 @@ function parseHerdrEventChunks<const Type extends EventSubscriptionSpec["type"]>
 ): readonly [
   HerdrSocketLineBuffer,
   ReadonlyArray<
-    Result.Result<
-      EventForSubscription<{ type: Type }>,
-      HerdrInvalidResponse | HerdrTransportError | HerdrUnsupportedEvent
-    >
+    Result.Result<EventForSubscription<{ type: Type }>, HerdrEventLineError | HerdrTransportError>
   >,
 ] {
   const decodedEvents: Result.Result<
     EventForSubscription<{ type: Type }>,
-    HerdrInvalidResponse | HerdrTransportError | HerdrUnsupportedEvent
+    HerdrEventLineError | HerdrTransportError
   >[] = [];
 
   for (const input of inputs) {

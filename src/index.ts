@@ -21,6 +21,7 @@ export {
   herdrTransportLayerWithoutDependencies,
 } from "./herdr-transport.ts";
 export type {
+  HerdrStreamWireMethod,
   HerdrTransportMethodError,
   HerdrTransportRequestError,
   HerdrTransportRequestOptionsEncoded,
