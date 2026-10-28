@@ -1,12 +1,21 @@
 {
-  "name": "@herdr/sdk",
-  "version": "0.9.5",
+  "name": "herdr-sdk",
+  "version": "0.9.500",
   "description": "Effect-native TypeScript SDK for Herdr's local socket API.",
+  "keywords": [
+    "agents",
+    "effect",
+    "herdr",
+    "sdk",
+    "terminal",
+    "typescript"
+  ],
   "homepage": "https://github.com/dmmulroy/herdr-ts-sdk#readme",
   "bugs": {
     "url": "https://github.com/dmmulroy/herdr-ts-sdk/issues"
   },
   "license": "MIT",
+  "author": "Dillon Mulroy <dillon.mulroy@gmail.com> (https://github.com/dmmulroy)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dmmulroy/herdr-ts-sdk.git"
@@ -15,6 +24,7 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./dist/index.mjs",
     "./package.json": "./package.json"
@@ -69,6 +79,7 @@
     "node": ">=20"
   },
   "herdr": {
+    "version": "0.9.5",
     "protocol": 22,
     "upstreamCommit": "2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01"
   }

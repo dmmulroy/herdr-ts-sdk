@@ -138,7 +138,7 @@ export interface IHerdrConfig {
  * @since 0.8.2
  */
 export class HerdrConfig extends Context.Service<HerdrConfig, IHerdrConfig>()(
-  "@herdr/sdk/HerdrConfig",
+  "herdr-sdk/HerdrConfig",
 ) {}
 
 const ambientHerdrConfig = Config.all({

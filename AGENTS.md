@@ -1,4 +1,4 @@
-# Working on @herdr/sdk
+# Working on herdr-sdk
 
 ## Start here
 

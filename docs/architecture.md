@@ -1,6 +1,6 @@
 # Herdr SDK architecture
 
-`@herdr/sdk` targets Herdr 0.9.5 / protocol 22, with Effect-native API-socket and client-shell endpoint clients. The
+`herdr-sdk` targets Herdr 0.9.5 / protocol 22, with Effect-native API-socket and client-shell endpoint clients. The
 Effect implementation under `src/` is the only supported package architecture; there is no Promise
 client or cancellation compatibility facade.
 

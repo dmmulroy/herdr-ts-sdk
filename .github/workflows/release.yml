@@ -1,0 +1,125 @@
+name: Release
+
+"on":
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      HERDR_VERIFY_TIMEOUT_MS: "300000"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Development tools have stricter engines than the package's Node >=20 runtime.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.16.0"
+          registry-url: https://registry.npmjs.org
+
+      - name: Read package manager version from package source
+        id: package-manager
+        shell: bash
+        run: node -e 'const p=require("./package.json"); if(p.devEngines.packageManager.name!=="pnpm") process.exit(1); console.log("version="+p.devEngines.packageManager.version)' >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ steps.package-manager.outputs.version }}
+          run_install: false
+
+      - name: Show tool versions
+        run: |
+          node -v
+          pnpm -v
+          (cd "$RUNNER_TEMP" && npm -v)
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package.json version
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+
+          echo "Tag version:  ${TAG_VERSION}"
+          echo "Package.json: ${PKG_VERSION}"
+
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag version does not match package.json version"
+            exit 1
+          fi
+
+      - name: Verify version tracks targeted Herdr version
+        shell: bash
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { checkSdkVersionTracksHerdrVersion } from "./scripts/sdk-verification-metadata.mjs";
+            const p = JSON.parse(readFileSync("package.json", "utf8"));
+            console.log(`Herdr:        ${p.herdr.version}`);
+            const mismatch = checkSdkVersionTracksHerdrVersion(p.version, p.herdr.version);
+            if (mismatch) {
+              console.log(mismatch);
+              process.exit(1);
+            }
+          '
+
+      - name: Determine release channel
+        id: release
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          if [[ "$VERSION" == *-* ]]; then
+            echo "npm-tag=next" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "npm-tag=latest" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run checks
+        run: pnpm run verify
+
+      - name: Build package
+        run: pnpm run build
+
+      - name: Check packed package
+        run: pnpm run check:package
+
+      - name: Pack release artifact
+        run: pnpm pack
+
+      # npm enforces devEngines.packageManager (pnpm) inside the repository, so publish the
+      # already-built tarball from outside it. Trusted publishing (OIDC) supplies auth and provenance.
+      - name: Publish to npm
+        shell: bash
+        run: |
+          TARBALL="$(ls "$GITHUB_WORKSPACE"/herdr-sdk-*.tgz)"
+          cd "$RUNNER_TEMP"
+          npm publish "$TARBALL" --access public --provenance --tag "${{ steps.release.outputs.npm-tag }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          generate_release_notes: true
+          files: |
+            herdr-sdk-*.tgz

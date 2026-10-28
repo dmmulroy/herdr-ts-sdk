@@ -216,7 +216,7 @@ describe("verification CLI", () => {
   );
 
   it(
-    "rejects protocol disagreement and reports the recorded upstream commit",
+    "rejects protocol or Herdr version disagreement and reports the recorded upstream commit",
     (context) =>
       runVerificationTest(
         context,
@@ -234,6 +234,14 @@ describe("verification CLI", () => {
           expect(mismatch.output).toContain(
             "package.json herdr.protocol must equal schema.protocol",
           );
+          yield* fs.writeFileString(
+            manifestPath,
+            // The first "version" key is the SDK version; herdr.version follows later.
+            manifest.replace(/"version":\s*"[^"]+"/, '"version": "999.0.0"'),
+          );
+          const versionMismatch = yield* runVerificationCli(directory, ["generated"]);
+          expect(versionMismatch.exitCode).toBe(1);
+          expect(versionMismatch.output).toContain("package.json version 999.0.0 must be");
           yield* fs.writeFileString(manifestPath, manifest);
           const aligned = yield* runVerificationCli(directory, ["generated"]);
           expect(aligned.output).toContain("recorded upstreamCommit");

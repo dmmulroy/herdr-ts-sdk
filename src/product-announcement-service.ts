@@ -46,7 +46,7 @@ export interface IProductAnnouncementService {
 export class ProductAnnouncementService extends Context.Service<
   ProductAnnouncementService,
   IProductAnnouncementService
->()("@herdr/sdk/ProductAnnouncementService") {}
+>()("herdr-sdk/ProductAnnouncementService") {}
 /** Constructs announcement dismissal on the shared transport. @category constructors @since 0.9.0 */
 export const makeProductAnnouncementService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;

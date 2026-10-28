@@ -129,7 +129,7 @@ export interface IEventService {
  * @since 0.8.2
  */
 export class EventService extends Context.Service<EventService, IEventService>()(
-  "@herdr/sdk/EventService",
+  "herdr-sdk/EventService",
 ) {}
 
 /**

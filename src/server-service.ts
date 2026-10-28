@@ -136,7 +136,7 @@ export interface IServerService {
  * @since 0.8.2
  */
 export class ServerService extends Context.Service<ServerService, IServerService>()(
-  "@herdr/sdk/ServerService",
+  "herdr-sdk/ServerService",
 ) {}
 
 /**

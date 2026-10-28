@@ -154,7 +154,7 @@ export interface IAgentService {
  * @since 0.8.2
  */
 export class AgentService extends Context.Service<AgentService, IAgentService>()(
-  "@herdr/sdk/AgentService",
+  "herdr-sdk/AgentService",
 ) {}
 
 /**

@@ -311,7 +311,7 @@ export interface IClientShellService {
 }
 /** Yieldable client-shell endpoint capability. @category services @since 0.9.0 */
 export class ClientShellService extends Context.Service<ClientShellService, IClientShellService>()(
-  "@herdr/sdk/ClientShellService",
+  "herdr-sdk/ClientShellService",
 ) {}
 
 /** Constructs lazy endpoint acquisition using the shared API configuration and compatibility gate. @category constructors @since 0.9.0 */

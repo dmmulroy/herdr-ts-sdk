@@ -273,7 +273,7 @@ export interface IPaneService extends IPaneInteraction {
  * @since 0.8.2
  */
 export class PaneService extends Context.Service<PaneService, IPaneService>()(
-  "@herdr/sdk/PaneService",
+  "herdr-sdk/PaneService",
 ) {}
 
 /**

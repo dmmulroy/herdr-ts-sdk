@@ -72,7 +72,7 @@ export interface ICommandService {
 }
 /** Yieldable custom-command capability. @category services @since 0.9.0 */
 export class CommandService extends Context.Service<CommandService, ICommandService>()(
-  "@herdr/sdk/CommandService",
+  "herdr-sdk/CommandService",
 ) {}
 /** Constructs commands using the shared socket transport. @category constructors @since 0.9.0 */
 export const makeCommandService = Effect.gen(function* () {

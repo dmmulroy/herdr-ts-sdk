@@ -35,7 +35,7 @@ export interface IReleaseNotesService {
 export class ReleaseNotesService extends Context.Service<
   ReleaseNotesService,
   IReleaseNotesService
->()("@herdr/sdk/ReleaseNotesService") {}
+>()("herdr-sdk/ReleaseNotesService") {}
 /** Constructs release-note dismissal using the shared transport. @category constructors @since 0.9.0 */
 export const makeReleaseNotesService = Effect.gen(function* () {
   const transport = yield* HerdrTransport;

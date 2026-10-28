@@ -1,4 +1,4 @@
-# `@herdr/sdk`
+# `herdr-sdk`
 
 Effect-native TypeScript access to Herdr's local Unix-socket API.
 
@@ -9,7 +9,7 @@ precise errors, dependencies, and interruption.
 
 ```ts
 import { Effect } from "effect";
-import { HerdrSdk, herdrSdkLayer } from "@herdr/sdk";
+import { HerdrSdk, herdrSdkLayer } from "herdr-sdk";
 
 const program = Effect.gen(function* () {
   const herdr = yield* HerdrSdk;
@@ -41,17 +41,36 @@ servers answer with `unknown_method` (a `HerdrServerError`), and it no longer of
 `pane.graphics.*` socket API that 0.9.2 removed. Applications draw images by writing standard Kitty
 graphics to their own pane's terminal output.
 
-`@herdr/sdk` is not currently published to npm. To use it today, build and pack this repository:
+Install from npm:
 
 ```sh
-git clone https://github.com/dmmulroy/herdr-ts-sdk.git
-cd herdr-ts-sdk
-pnpm install
-pnpm run build
-pnpm pack
+pnpm add herdr-sdk
 ```
 
-Then install the generated tarball in the consuming project and import from `@herdr/sdk`.
+Then import from `herdr-sdk`.
+
+### Versioning
+
+SDK versions track the Herdr release they target. `MAJOR.MINOR` match Herdr, and the SDK patch is
+`herdrPatch * 100 + sdkRevision`:
+
+| Herdr | SDK                                  |
+| ----- | ------------------------------------ |
+| 0.9.5 | `0.9.500`, then `0.9.501`, `0.9.502` |
+| 0.9.6 | `0.9.600`                            |
+| 1.0.0 | `1.0.0`, then `1.0.1`                |
+
+`package.json` records the targeted release in `herdr.version`; verification fails when the SDK
+version does not fall in that release's range.
+
+### Releasing
+
+Pushing a `vX.Y.Z` tag that matches `package.json`'s `version` runs
+[`.github/workflows/release.yml`](.github/workflows/release.yml): it runs full verification,
+builds and checks the packed package, publishes to npm with provenance (prerelease versions such
+as `v1.0.0-beta.1` publish under the `next` dist-tag), and creates a GitHub Release with the
+tarball attached. Bump and tag with `pnpm exec bumpp <version>`, passing the version explicitly
+(for example `0.9.501`), and update `herdr.version` when retargeting a new Herdr release.
 
 ## API shape
 
@@ -119,7 +138,7 @@ Use explicit options when an application owns SDK configuration:
 
 ```ts
 import { Effect, Duration } from "effect";
-import { HerdrSdk, herdrSdkLayerFromOptions } from "@herdr/sdk";
+import { HerdrSdk, herdrSdkLayerFromOptions } from "herdr-sdk";
 
 const sdkLayer = herdrSdkLayerFromOptions({
   session: "work",
@@ -163,7 +182,7 @@ Advanced applications can depend on one service directly:
 
 ```ts
 import { Effect } from "effect";
-import { WorkspaceService, workspaceServiceLayer } from "@herdr/sdk";
+import { WorkspaceService, workspaceServiceLayer } from "herdr-sdk";
 
 const labels = Effect.gen(function* () {
   const workspaces = yield* WorkspaceService;
@@ -471,7 +490,7 @@ Literal subscription tuples narrow the emitted event union:
 
 ```ts
 import { Effect, Stream } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
+import { HerdrSdk } from "herdr-sdk";
 
 const monitor = Effect.gen(function* () {
   const herdr = yield* HerdrSdk;
@@ -498,7 +517,7 @@ events onto a snapshot.
 
 ```ts
 import { Effect, Stream } from "effect";
-import { HerdrSdk } from "@herdr/sdk";
+import { HerdrSdk } from "herdr-sdk";
 
 const watchWorkspaces = (onChange: Effect.Effect<void>): Effect.Effect<void, unknown, HerdrSdk> =>
   Effect.gen(function* () {
@@ -629,7 +648,7 @@ Public data is schema-owned. A schema value such as `Workspace` also owns the co
 `Workspace` TypeScript type. Operation inputs additionally expose `...Encoded` interfaces when the
 ergonomic caller representation differs from the normalized type.
 
-Protocol-22 interaction models are exported from `herdr-pane-interaction-models.ts`; endpoint projection, surface, lifecycle, and graphics schemas from `herdr-client-shell-models.ts`; semantic key/mouse inputs from `herdr-client-shell-input.ts`. Connection input and ownership interfaces belong to `client-shell-service.ts`. All are re-exported by `@herdr/sdk`; generated wire contracts remain private.
+Protocol-22 interaction models are exported from `herdr-pane-interaction-models.ts`; endpoint projection, surface, lifecycle, and graphics schemas from `herdr-client-shell-models.ts`; semantic key/mouse inputs from `herdr-client-shell-input.ts`. Connection input and ownership interfaces belong to `client-shell-service.ts`. All are re-exported by `herdr-sdk`; generated wire contracts remain private.
 
 ### Domain primitives
 
